@@ -1,0 +1,785 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { ImageUploader } from './components/ImageUploader';
+import { RichTextEditor } from './components/RichTextEditor';
+import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions } from './services/geminiService';
+import { fetchSiteProducts, fetchPageContent } from './utils/sitemapService';
+import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry } from './types';
+import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download } from 'lucide-react';
+
+export default function App() {
+  const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
+  const [keywords, setKeywords] = useState('');
+  const [userIntent, setUserIntent] = useState('');
+  const [extraInstructions, setExtraInstructions] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  
+  // Product & Sitemap State
+  const [sitemapUrl, setSitemapUrl] = useState('https://creativeuseoftechnology.com/sitemap_index.xml');
+  const [availableProducts, setAvailableProducts] = useState<ProductEntry[]>([]);
+  const [isLoadingSitemap, setIsLoadingSitemap] = useState(false);
+  const [sitemapError, setSitemapError] = useState('');
+  
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProducts, setSelectedProducts] = useState<ProductEntry[]>([]);
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false);
+
+  const [images, setImages] = useState<ImageData[]>([]);
+  
+  // Editor State
+  const [editorContent, setEditorContent] = useState('');
+  const [generatedBlogData, setGeneratedBlogData] = useState<GeneratedBlog | null>(null);
+  
+  const [progressMessage, setProgressMessage] = useState('');
+  const [modificationPrompt, setModificationPrompt] = useState('');
+  
+  const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [copiedHtml, setCopiedHtml] = useState(false);
+
+  // Removed automatic fetching useEffect
+
+  const handleFetchSitemap = async () => {
+    setIsLoadingSitemap(true);
+    setSitemapError('');
+    try {
+        const products = await fetchSiteProducts(sitemapUrl);
+        if (products.length === 0) {
+            setSitemapError('Geen items gevonden. Controleer de URL.');
+        } else {
+            setAvailableProducts(products);
+        }
+    } catch (e) {
+        setSitemapError('Kon sitemap niet laden. Mogelijk blokkeert de server de proxy.');
+    } finally {
+        setIsLoadingSitemap(false);
+    }
+  };
+
+  // Filter products based on search
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return [];
+    const term = productSearch.toLowerCase();
+    return availableProducts.filter(p => 
+      (p.name.toLowerCase().includes(term) || p.category.toLowerCase().includes(term)) && 
+      !selectedProducts.find(sp => sp.url === p.url)
+    ).slice(0, 10);
+  }, [productSearch, selectedProducts, availableProducts]);
+
+  const handleAddProduct = (product: ProductEntry) => {
+    setSelectedProducts([...selectedProducts, product]);
+    setProductSearch('');
+    setShowProductSuggestions(false);
+  };
+
+  const handleRemoveProduct = (url: string) => {
+    setSelectedProducts(selectedProducts.filter(p => p.url !== url));
+  };
+
+  // --- VIDEO PARSER ---
+  const parseVideo = (url: string): { type: 'youtube' | 'vimeo', id: string } | null => {
+    if (!url) return null;
+    // YouTube
+    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
+    if (ytMatch && ytMatch[1]) {
+      return { type: 'youtube', id: ytMatch[1] };
+    }
+    // Vimeo
+    const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
+    if (vimeoMatch && vimeoMatch[1]) {
+      return { type: 'vimeo', id: vimeoMatch[1] };
+    }
+    return null;
+  };
+
+  // --- STYLE CONSTANT ---
+  // Defined outside to easily re-inject if stripped by contentEditable
+  const BLOG_CSS = `
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&family=Open+Sans:wght@400;600&display=swap');
+      
+      #cuot-blog-wrapper {
+        font-family: 'Open Sans', sans-serif;
+        color: #575756; /* PMS 425 C (Body text grey) */
+        line-height: 1.6;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      /* Headings - All Orange as requested */
+      #cuot-blog-wrapper h1, 
+      #cuot-blog-wrapper h2, 
+      #cuot-blog-wrapper h3 {
+        font-family: 'Comfortaa', cursive;
+        color: #ec7b5d; /* PMS 2434 C (Orange) */
+        font-weight: 700;
+        margin-bottom: 0.5em;
+      }
+      #cuot-blog-wrapper h1 { font-size: 2.5rem; line-height: 1.2; }
+      #cuot-blog-wrapper h2 { font-size: 1.8rem; margin-top: 1.5em; }
+      #cuot-blog-wrapper h3 { font-size: 1.4rem; margin-top: 1.2em; }
+      
+      #cuot-blog-wrapper p { margin-bottom: 1em; }
+      #cuot-blog-wrapper strong { color: #ec7b5d; font-weight: 600; }
+      #cuot-blog-wrapper ul { margin-bottom: 1em; padding-left: 1.5em; list-style-type: disc; }
+      #cuot-blog-wrapper li { margin-bottom: 0.5em; }
+
+      /* Layout Utilities */
+      .cuot-section { margin-bottom: 3rem; clear: both; }
+      .cuot-grid { display: flex; flex-wrap: wrap; gap: 2rem; align-items: center; }
+      .cuot-col { flex: 1 1 300px; }
+      
+      /* Images */
+      .cuot-img-responsive { width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: block; }
+      
+      /* Video Wrapper */
+      .cuot-video-container {
+        position: relative;
+        padding-bottom: 56.25%; /* 16:9 */
+        height: 0;
+        overflow: hidden;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin-bottom: 3rem;
+        margin-top: 2rem;
+        background-color: #f0f0f0; 
+        border: 1px solid #e5e5e5;
+      }
+      .cuot-video-container iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+
+      /* Buttons / CTA */
+      .cuot-btn {
+        display: block; 
+        width: fit-content; 
+        background-color: #ec7b5d; /* Brand Orange */
+        color: #ffffff !important;
+        font-family: 'Comfortaa', cursive;
+        font-weight: 700;
+        padding: 14px 40px; 
+        border-radius: 8px;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(236, 123, 93, 0.3);
+        text-align: center;
+        
+        /* Spacing (Witregel) & Centering */
+        margin: 3rem auto; 
+      }
+      .cuot-btn:hover { background-color: #d66a4d; transform: translateY(-2px); }
+      
+      /* Specific Section Styles */
+      .cuot-cta-block {
+        background-color: #fdf6f4; /* Light Brand BG */
+        padding: 3rem;
+        border-radius: 16px;
+        text-align: center;
+        border: 2px solid #fff;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      }
+      
+      @media (max-width: 768px) {
+        #cuot-blog-wrapper h1 { font-size: 2rem; }
+        .cuot-grid { flex-direction: column; }
+        .cuot-btn { width: 100%; box-sizing: border-box; } /* Full width on mobile */
+      }
+    </style>
+  `;
+
+  // --- PROFESSIONAL HTML GENERATOR ENGINE ---
+  const convertToHtmlString = (blog: GeneratedBlog, currentImages: ImageData[], videoInputUrl: string) => {
+      let html = BLOG_CSS;
+
+      // 1. BRAND STYLE WRAPPER START
+      html += `<div id="cuot-blog-wrapper">`;
+
+      // 2. META DATA (Hidden or Styled for review)
+      html += `<!-- 
+         SEO TITLE: ${blog.title}
+         META DESC: ${blog.metaDescription}
+         KEYWORDS: ${blog.keywordsUsed?.join(', ')}
+         STRATEGY: ${blog.geoStrategy}
+      -->`;
+
+      // 3. TITLE SECTION
+      html += `
+        <header class="cuot-section">
+           <h1>${blog.title}</h1>
+           <p style="font-style: italic; color: #888;">${blog.metaDescription}</p>
+        </header>
+      `;
+
+      // Prepare Video Embed (Smart Loading for YouTube to ensure thumbnail)
+      const videoInfo = parseVideo(videoInputUrl);
+      let videoHtml = '';
+      
+      if (videoInfo) {
+        if (videoInfo.type === 'youtube') {
+            // Use srcdoc to show thumbnail and load video on click. 
+            // This prevents "Video unavailable" errors and ensures standard thumbnail look.
+            videoHtml = `
+            <div class="cuot-video-container">
+              <iframe 
+                src="https://www.youtube.com/embed/${videoInfo.id}"
+                srcdoc="<style>*{padding:0;margin:0;overflow:hidden}html,body{height:100%}img,span{position:absolute;width:100%;top:0;bottom:0;margin:auto}span{height:1.5em;text-align:center;font:48px/1.5 sans-serif;color:white;text-shadow:0 0 0.5em black}</style><a href=https://www.youtube.com/embed/${videoInfo.id}?autoplay=1><img src=https://img.youtube.com/vi/${videoInfo.id}/hqdefault.jpg alt='Video Thumbnail'><span>▶</span></a>"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                title="Video Speler"
+              ></iframe>
+            </div>`;
+        } else if (videoInfo.type === 'vimeo') {
+             videoHtml = `
+            <div class="cuot-video-container">
+              <iframe src="https://player.vimeo.com/video/${videoInfo.id}" title="Video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>`;
+        }
+      }
+
+      // 4. DYNAMIC SECTIONS
+      blog.sections.forEach((section, idx) => {
+          const imageKey = idx.toString();
+          const imgData = currentImages[idx];
+          const hasImage = blog.imageAltMap && blog.imageAltMap[imageKey] && imgData;
+          
+          let imageHtml = '';
+          if (hasImage) {
+             const src = `data:${imgData.mimeType};base64,${imgData.base64}`;
+             const alt = blog.imageAltMap[imageKey] || "Creative Use of Technology";
+             imageHtml = `<img src="${src}" alt="${alt}" title="${alt}" class="cuot-img-responsive" width="800" height="600" />`;
+          }
+
+          let ctaHtml = '';
+          if (section.ctaText && section.ctaUrl) {
+              ctaHtml = `<a href="${section.ctaUrl}" class="cuot-btn">${section.ctaText}</a>`;
+          }
+
+          html += `<section class="cuot-section">`;
+
+          // Inject video after the first section (usually intro) if it exists
+          if (idx === 1 && videoHtml) {
+             html += videoHtml;
+          }
+
+          switch (section.layout) {
+              case 'two_column_image_right':
+                  if (hasImage) {
+                      html += `
+                      <div class="cuot-grid">
+                        <div class="cuot-col">
+                           ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                           ${section.content}
+                           ${ctaHtml}
+                        </div>
+                        <div class="cuot-col">
+                           ${imageHtml}
+                        </div>
+                      </div>`;
+                  } else {
+                      html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${section.content}${ctaHtml}`;
+                  }
+                  break;
+
+              case 'two_column_image_left':
+                  if (hasImage) {
+                      html += `
+                      <div class="cuot-grid">
+                        <div class="cuot-col">
+                           ${imageHtml}
+                        </div>
+                        <div class="cuot-col">
+                           ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                           ${section.content}
+                           ${ctaHtml}
+                        </div>
+                      </div>`;
+                  } else {
+                       html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${section.content}${ctaHtml}`;
+                  }
+                  break;
+
+              case 'cta_block':
+                  html += `
+                  <div class="cuot-cta-block">
+                     ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                     ${section.content}
+                     ${ctaHtml}
+                  </div>`;
+                  break;
+
+              case 'full_width':
+              case 'hero':
+              default:
+                  html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}`;
+                  if (hasImage && section.layout === 'hero') {
+                      html += `<div style="margin-bottom: 1.5rem;">${imageHtml}</div>`;
+                  }
+                  html += `${section.content} ${ctaHtml}`;
+                  break;
+          }
+
+          html += `</section>`;
+      });
+
+      html += `</div>`; // Close wrapper
+      return html;
+  };
+
+  const handleGenerate = async () => {
+    if (!keywords || !userIntent) {
+      alert("Vul alstublieft zoekwoorden en de hoofdvraag/intentie in.");
+      return;
+    }
+
+    try {
+      // 1. Analyze Images
+      setStatus(AppStatus.ANALYZING_IMAGES);
+      setProgressMessage("Afbeeldingen analyseren voor Creative Use of Technology context...");
+
+      const analyzedImageContexts: string[] = [];
+      for (const img of images) {
+        const description = await analyzeImageContent(img.base64, img.mimeType);
+        analyzedImageContexts.push(description);
+      }
+
+      // 2. Fetch Product Details (Scraping)
+      let productDetails: string[] = [];
+      if (selectedProducts.length > 0) {
+        setStatus(AppStatus.ANALYZING_IMAGES); 
+        setProgressMessage(`Details ophalen van ${selectedProducts.length} items van de website...`);
+        try {
+           const promises = selectedProducts.map(p => fetchPageContent(p.url));
+           productDetails = await Promise.all(promises);
+        } catch (err) {
+           console.error("Failed scraping product details", err);
+        }
+      }
+
+      // 3. Generate Blog
+      setStatus(AppStatus.GENERATING_TEXT);
+      setProgressMessage("Professionele HTML blog layout opbouwen...");
+
+      const blogData = await generateBlogContent(
+        keywords, 
+        userIntent, 
+        selectedProducts,
+        analyzedImageContexts,
+        productDetails,
+        extraInstructions // Pass dynamic user instructions here
+      );
+      
+      setGeneratedBlogData(blogData);
+      
+      // Convert to HTML string for the editor (pass video url)
+      const initialHtml = convertToHtmlString(blogData, images, videoUrl);
+      setEditorContent(initialHtml);
+
+      setStatus(AppStatus.COMPLETED);
+
+    } catch (e) {
+      console.error(e);
+      setStatus(AppStatus.ERROR);
+      setProgressMessage("Er is iets misgegaan. Controleer de console.");
+    }
+  };
+
+  const handleModification = async () => {
+    if (!generatedBlogData || !modificationPrompt.trim()) return;
+
+    try {
+      setStatus(AppStatus.MODIFYING_TEXT);
+      setProgressMessage("AI past de tekststructuur aan...");
+      const updatedBlog = await modifyBlogContent(generatedBlogData, modificationPrompt);
+      setGeneratedBlogData(updatedBlog);
+      
+      // Re-render HTML with new text but KEEP existing images and video
+      const newHtml = convertToHtmlString(updatedBlog, images, videoUrl);
+      setEditorContent(newHtml);
+      
+      setModificationPrompt('');
+      setStatus(AppStatus.COMPLETED);
+    } catch (e) {
+      console.error(e);
+      setStatus(AppStatus.ERROR);
+      setProgressMessage("Fout bij aanpassen. Probeer het opnieuw.");
+    }
+  };
+
+  const handleGetSuggestions = async () => {
+    if (!keywords.trim()) {
+      alert("Vul eerst een basis onderwerp in.");
+      return;
+    }
+    setIsLoadingSuggestions(true);
+    setSuggestions([]);
+    try {
+      const sugs = await getKeywordSuggestions(keywords);
+      setSuggestions(sugs);
+    } catch (e) { console.error(e); } 
+    finally { setIsLoadingSuggestions(false); }
+  };
+
+  const addSuggestion = (suggestion: string) => {
+    const newKeywords = keywords ? `${keywords}, ${suggestion}` : suggestion;
+    setKeywords(newKeywords);
+    setSuggestions(suggestions.filter(s => s.keyword !== suggestion));
+  };
+
+  const prepareCompleteHtml = () => {
+     if (!editorContent) return "";
+     
+     // Check if styles were stripped by contentEditable (browser behavior)
+     let completeHtml = editorContent;
+     if (!completeHtml.includes('<style>')) {
+         completeHtml = BLOG_CSS + completeHtml;
+     }
+     return completeHtml;
+  };
+
+  const handleCopyHtml = () => {
+    const htmlToCopy = prepareCompleteHtml();
+    if (!htmlToCopy) return;
+
+    navigator.clipboard.writeText(htmlToCopy);
+    setCopiedHtml(true);
+    setTimeout(() => setCopiedHtml(false), 2000);
+  };
+
+  const handleDownloadHtml = () => {
+    const htmlToSave = prepareCompleteHtml();
+    if (!htmlToSave) return;
+    
+    // Create a Blob from the HTML String
+    const blob = new Blob([htmlToSave], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    
+    // Create link and trigger download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cuot-blog-${keywords.replace(/\s+/g, '-').toLowerCase()}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-brand-grey font-body pb-20">
+      
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+                <div className="relative w-8 h-8">
+                    <div className="absolute inset-0 bg-brand-grey rounded-full opacity-20"></div>
+                    <div className="absolute inset-0 m-1 bg-brand-orange rounded-full"></div>
+                </div>
+                <div className="leading-tight">
+                    <h1 className="text-xl font-display font-bold text-brand-grey">Creative <span className="text-sm font-normal">use of</span></h1>
+                    <h1 className="text-xl font-display font-bold text-brand-grey -mt-1">Technology</h1>
+                </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider px-3 py-1 bg-brand-light text-brand-orange rounded-full border border-brand-orange/20">
+            <Bot size={14} />
+            <span>AI Blog Editor</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* Left Column: Input */}
+        <div className="lg:col-span-4 space-y-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 className="text-lg font-display font-bold mb-4 flex items-center gap-2 text-brand-grey">
+              <FileText className="text-brand-orange" size={20} />
+              Configuratie
+            </h2>
+            
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-bold text-brand-grey">
+                    Onderwerp / Zoekwoorden
+                  </label>
+                  <button 
+                    onClick={handleGetSuggestions}
+                    disabled={isLoadingSuggestions}
+                    className="text-xs text-brand-orange hover:text-[#d66a4d] font-bold flex items-center gap-1 bg-brand-light px-2 py-1 rounded-full transition-colors"
+                  >
+                    {isLoadingSuggestions ? <RefreshCw className="animate-spin" size={10} /> : <Sparkles size={10} />}
+                    AI Suggesties
+                  </button>
+                </div>
+                
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all"
+                    placeholder="bijv. lasersnijden hout"
+                    value={keywords}
+                    onChange={(e) => setKeywords(e.target.value)}
+                  />
+                </div>
+                 {/* Suggestions Panel */}
+                {suggestions.length > 0 && (
+                  <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Aanbevolen:</p>
+                    <div className="flex flex-col gap-2">
+                      {suggestions.map((s, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-white border border-slate-100 p-2 rounded hover:border-brand-orange/30 transition-colors group cursor-pointer" onClick={() => addSuggestion(s.keyword)}>
+                          <span className="text-sm text-brand-grey">{s.keyword}</span>
+                          <Plus size={14} className="text-slate-300" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-brand-grey mb-1">
+                  Klantvraag (User Intent)
+                </label>
+                <div className="relative">
+                  <Target className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all"
+                    placeholder="bijv. Waarom hout graveren?"
+                    value={userIntent}
+                    onChange={(e) => setUserIntent(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-brand-grey mb-1">
+                  Extra Instructies / Ideeën
+                </label>
+                <div className="relative">
+                  <PenTool className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <textarea
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all h-24 text-sm resize-none"
+                    placeholder="Bijv. 'Gebruik humor', 'Focus op duurzaamheid', 'Noem specifiek het materiaal bamboe'."
+                    value={extraInstructions}
+                    onChange={(e) => setExtraInstructions(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-brand-grey mb-1">
+                  Video URL (Optioneel)
+                </label>
+                <div className="relative">
+                  <Video className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all text-sm"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1 pl-1">YouTube of Vimeo links worden automatisch ingesloten.</p>
+              </div>
+
+              {/* Sitemap & Product Selector */}
+              <div className="relative border-t border-slate-100 pt-4">
+                <div className="flex justify-between items-center mb-1">
+                     <label className="block text-sm font-bold text-brand-grey">
+                        Focus Pagina's / Producten / Blogs
+                     </label>
+                     <button 
+                        onClick={handleFetchSitemap}
+                        disabled={isLoadingSitemap}
+                        className="text-xs flex items-center gap-1 text-slate-400 hover:text-brand-orange transition-colors bg-white border border-slate-200 px-2 py-0.5 rounded shadow-sm"
+                     >
+                        <RefreshCw size={10} className={isLoadingSitemap ? "animate-spin" : ""} />
+                        Data Inladen
+                     </button>
+                </div>
+
+                {sitemapError && (
+                    <div className="text-xs text-red-500 mb-2 font-bold">{sitemapError}</div>
+                )}
+                
+                {availableProducts.length === 0 && !isLoadingSitemap && !sitemapError && (
+                    <div className="text-xs text-slate-400 mb-2 italic flex items-center gap-1">
+                        <Database size={10} />
+                        Klik op "Data Inladen" om te beginnen
+                    </div>
+                )}
+
+                {/* Selected Products Chips */}
+                {selectedProducts.length > 0 && (
+                   <div className="flex flex-wrap gap-2 mb-2">
+                      {selectedProducts.map((p, idx) => (
+                         <div key={idx} className="flex items-center gap-1 bg-brand-light text-brand-orange border border-brand-orange/20 px-2 py-1 rounded text-xs font-bold">
+                            <SearchCheck size={10} />
+                            <span className="truncate max-w-[150px]">{p.name}</span>
+                            <button onClick={() => handleRemoveProduct(p.url)} className="hover:text-red-500 ml-1"><X size={12}/></button>
+                         </div>
+                      ))}
+                   </div>
+                )}
+
+                <div className="relative">
+                  <Tag className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all"
+                    placeholder={availableProducts.length > 0 ? "Zoek in catalogus..." : "Eerst data inladen..."}
+                    value={productSearch}
+                    disabled={availableProducts.length === 0}
+                    onChange={(e) => {
+                       setProductSearch(e.target.value);
+                       setShowProductSuggestions(true);
+                    }}
+                    onFocus={() => setShowProductSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowProductSuggestions(false), 200)}
+                  />
+                  
+                  {/* Suggestions Dropdown */}
+                  {showProductSuggestions && productSearch && filteredProducts.length > 0 && (
+                     <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                        {filteredProducts.map((p, idx) => (
+                           <div 
+                              key={idx} 
+                              className="px-4 py-2 hover:bg-brand-light cursor-pointer border-b border-slate-50 last:border-0"
+                              onClick={() => handleAddProduct(p)}
+                           >
+                              <div className="text-sm font-bold text-brand-grey">{p.name}</div>
+                              <span className="text-[9px] uppercase font-bold text-slate-300 bg-slate-50 px-1 rounded">{p.category}</span>
+                           </div>
+                        ))}
+                     </div>
+                  )}
+                </div>
+              </div>
+
+              <ImageUploader images={images} onImagesChange={setImages} />
+
+              <button
+                onClick={handleGenerate}
+                disabled={status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT}
+                className={`w-full py-3 px-4 rounded-lg font-display font-bold text-white flex items-center justify-center gap-2 transition-all shadow-md
+                  ${(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT)
+                    ? 'bg-slate-400 cursor-not-allowed'
+                    : 'bg-brand-orange hover:bg-[#d66a4d] hover:shadow-lg active:scale-[0.98]'
+                  }`}
+              >
+                {status === AppStatus.IDLE && (
+                  <>Genereer HTML <ArrowRight size={18} /></>
+                )}
+                {(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT) && (
+                   <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"/> {progressMessage}</>
+                )}
+                {status === AppStatus.COMPLETED && (
+                  <>Opnieuw Genereren <Sparkles size={18} /></>
+                )}
+              </button>
+            </div>
+          </div>
+          
+           <div className="bg-brand-light p-6 rounded-xl border border-brand-orange/20">
+            <h3 className="font-display font-bold text-brand-grey mb-3 flex items-center gap-2">
+              <Lightbulb size={18} className="text-brand-orange" />
+              Tip: Afbeeldingen
+            </h3>
+            <p className="text-sm text-brand-grey leading-relaxed">
+                De HTML code bevat de afbeeldingen direct in de code (Base64). Je hoeft ze dus <strong>niet</strong> meer apart te uploaden in WordPress. Gewoon kopiëren en plakken in de "Tekst" of "HTML" tab van je editor.
+            </p>
+          </div>
+        </div>
+
+        {/* Right Column: Editor */}
+        <div className="lg:col-span-8 flex flex-col gap-4">
+          
+          {/* Modification Bar */}
+          {editorContent && (
+             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                 <label className="flex items-center gap-2 text-sm font-bold text-brand-grey mb-2">
+                    <MessageSquarePlus size={18} className="text-brand-orange"/>
+                    Vraag AI om aanpassingen
+                 </label>
+                 <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={modificationPrompt}
+                      onChange={(e) => setModificationPrompt(e.target.value)}
+                      placeholder="Bijv: 'Maak de toon enthousiaster' of 'Voeg een alinea toe over duurzaamheid'"
+                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none"
+                      onKeyDown={(e) => e.key === 'Enter' && handleModification()}
+                    />
+                    <button 
+                       onClick={handleModification}
+                       disabled={!modificationPrompt.trim() || status === AppStatus.MODIFYING_TEXT}
+                       className="bg-brand-grey text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                       <Sparkles size={16} /> Update
+                    </button>
+                 </div>
+              </div>
+          )}
+
+          {/* Copy Bar */}
+          {editorContent && (
+              <div className="flex justify-end gap-2">
+                   <button 
+                      onClick={handleDownloadHtml}
+                      className="bg-slate-600 text-white hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                      title="Download als .html bestand (Aanbevolen voor grote bestanden)"
+                    >
+                      <Download size={18} />
+                      Download HTML
+                   </button>
+                   <button 
+                      onClick={handleCopyHtml}
+                      className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                      {copiedHtml ? <ClipboardCheck size={18} /> : <Copy size={18} />}
+                      {copiedHtml ? 'Gekopieerd!' : 'Kopieer HTML'}
+                    </button>
+              </div>
+          )}
+
+          {/* Editor Area */}
+          <div className="flex-1 min-h-[600px]">
+             {status === AppStatus.MODIFYING_TEXT && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/50 backdrop-blur-sm rounded-xl">
+                    <div className="bg-white p-4 rounded-lg shadow-xl border border-slate-200 flex flex-col items-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-4 border-brand-orange border-t-transparent mb-2"/>
+                        <p className="text-brand-grey font-bold font-display">Aanpassingen verwerken...</p>
+                    </div>
+                </div>
+             )}
+             
+             {editorContent ? (
+                 <RichTextEditor 
+                    initialContent={editorContent} 
+                    onChange={setEditorContent} 
+                 />
+             ) : (
+                <div className="h-full flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 p-12">
+                   <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                      <FileText size={32} className="text-slate-300" />
+                   </div>
+                   <p className="font-display text-center">Genereer eerst een blog om de editor te openen.</p>
+                </div>
+             )}
+          </div>
+
+        </div>
+      </main>
+    </div>
+  );
+}
