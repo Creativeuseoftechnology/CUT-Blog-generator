@@ -36,10 +36,12 @@ export interface GeneratedBlog {
   sections: BlogSection[];
   keywordsUsed: string[];
   geoStrategy: string;
+  headerImageAlt: string; // Specific ALT for the hero image
   imageAltMap: Record<string, string>;
   
   // New fields for Creative Use of Technology specific features
   internalLinksUsed: string[]; // List of links inserted
+  faq?: { question: string; answer: string; }[]; // Optional FAQ section
 }
 
 export enum AppStatus {

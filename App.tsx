@@ -4,7 +4,7 @@ import { RichTextEditor } from './components/RichTextEditor';
 import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions } from './services/geminiService';
 import { fetchSiteProducts, fetchPageContent } from './utils/sitemapService';
 import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry } from './types';
-import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download } from 'lucide-react';
+import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon } from 'lucide-react';
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
@@ -23,7 +23,9 @@ export default function App() {
   const [selectedProducts, setSelectedProducts] = useState<ProductEntry[]>([]);
   const [showProductSuggestions, setShowProductSuggestions] = useState(false);
 
-  const [images, setImages] = useState<ImageData[]>([]);
+  // Image State
+  const [headerImage, setHeaderImage] = useState<ImageData[]>([]); // Array of 1 for reusability
+  const [contentImages, setContentImages] = useState<ImageData[]>([]);
   
   // Editor State
   const [editorContent, setEditorContent] = useState('');
@@ -76,23 +78,32 @@ export default function App() {
   };
 
   // --- VIDEO PARSER ---
-  const parseVideo = (url: string): { type: 'youtube' | 'vimeo', id: string } | null => {
+  const parseVideo = (url: string): { type: 'youtube' | 'vimeo', id: string, thumb?: string, link?: string } | null => {
     if (!url) return null;
     // YouTube
     const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
     if (ytMatch && ytMatch[1]) {
-      return { type: 'youtube', id: ytMatch[1] };
+      return { 
+          type: 'youtube', 
+          id: ytMatch[1],
+          thumb: `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`, // Try maxres first for better quality
+          link: `https://www.youtube.com/watch?v=${ytMatch[1]}`
+      };
     }
     // Vimeo
     const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
     if (vimeoMatch && vimeoMatch[1]) {
-      return { type: 'vimeo', id: vimeoMatch[1] };
+      return { 
+          type: 'vimeo', 
+          id: vimeoMatch[1],
+          // Vimeo thumb requires API, skipping for basic implementation or using generic
+          link: `https://vimeo.com/${vimeoMatch[1]}`
+      };
     }
     return null;
   };
 
   // --- STYLE CONSTANT ---
-  // Defined outside to easily re-inject if stripped by contentEditable
   const BLOG_CSS = `
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&family=Open+Sans:wght@400;600&display=swap');
@@ -104,8 +115,7 @@ export default function App() {
         max-width: 1000px;
         margin: 0 auto;
       }
-      /* Headings - All Orange as requested */
-      #cuot-blog-wrapper h1, 
+      /* Headings */
       #cuot-blog-wrapper h2, 
       #cuot-blog-wrapper h3 {
         font-family: 'Comfortaa', cursive;
@@ -113,35 +123,81 @@ export default function App() {
         font-weight: 700;
         margin-bottom: 0.5em;
       }
-      #cuot-blog-wrapper h1 { font-size: 2.5rem; line-height: 1.2; }
-      #cuot-blog-wrapper h2 { font-size: 1.8rem; margin-top: 1.5em; }
+      #cuot-blog-wrapper h2 { font-size: 1.8rem; margin-top: 1.5em; scroll-margin-top: 100px; }
       #cuot-blog-wrapper h3 { font-size: 1.4rem; margin-top: 1.2em; }
       
       #cuot-blog-wrapper p { margin-bottom: 1em; }
+      
+      /* Keyword Highlighting */
+      .cuot-keyword { color: #ec7b5d; font-weight: 700; }
+      
       #cuot-blog-wrapper strong { color: #ec7b5d; font-weight: 600; }
       #cuot-blog-wrapper ul { margin-bottom: 1em; padding-left: 1.5em; list-style-type: disc; }
       #cuot-blog-wrapper li { margin-bottom: 0.5em; }
 
       /* Layout Utilities */
-      .cuot-section { margin-bottom: 3rem; clear: both; }
-      .cuot-grid { display: flex; flex-wrap: wrap; gap: 2rem; align-items: center; }
+      .cuot-section { margin-bottom: 2.5rem; clear: both; }
+      .cuot-grid { display: flex; flex-wrap: wrap; gap: 3rem; align-items: center; }
       .cuot-col { flex: 1 1 300px; }
       
       /* Images */
-      .cuot-img-responsive { width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: block; }
+      /* Content images are restricted in size so they don't compete with header */
+      .cuot-img-responsive { 
+          width: 100%; 
+          max-width: 100%; 
+          height: auto; 
+          border-radius: 12px; /* Smooth rounded corners as per screenshot */
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+          display: block;
+      }
       
-      /* Video Wrapper */
+      /* Header image is the ONLY one allowed to be massive/heroic */
+      .cuot-header-image { 
+          width: 100%; 
+          height: auto; 
+          max-height: 500px;
+          object-fit: cover;
+          border-radius: 12px; 
+          box-shadow: 0 6px 16px rgba(0,0,0,0.12); 
+          display: block; 
+          margin-bottom: 2rem; 
+      }
+      
+      /* FAQ Section - Improved Design */
+      .cuot-faq-container { 
+          background: #fdf6f4; /* Brand Light */
+          border-radius: 16px; 
+          padding: 3rem; 
+          margin-top: 4rem; 
+      }
+      .cuot-faq-item { 
+          background: white;
+          margin-bottom: 1rem; 
+          border-radius: 8px;
+          padding: 1.5rem;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+          border-left: 4px solid #ec7b5d; /* Orange accent */
+      }
+      .cuot-faq-question { 
+          font-family: 'Comfortaa', cursive; 
+          color: #ec7b5d; 
+          font-weight: 700; 
+          font-size: 1.1rem; 
+          margin-bottom: 0.5rem; 
+      }
+      .cuot-faq-answer { font-size: 0.95rem; color: #666; }
+
+      /* Responsive Video Container */
       .cuot-video-container {
         position: relative;
-        padding-bottom: 56.25%; /* 16:9 */
+        padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
         height: 0;
         overflow: hidden;
+        max-width: 100%;
+        background: #000;
         border-radius: 12px;
+        margin: 2rem auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        margin-bottom: 3rem;
-        margin-top: 2rem;
-        background-color: #f0f0f0; 
-        border: 1px solid #e5e5e5;
       }
       .cuot-video-container iframe {
         position: absolute;
@@ -152,26 +208,66 @@ export default function App() {
         border: 0;
       }
 
-      /* Buttons / CTA */
+      /* Buttons / CTA - Exact Match to Screenshot + Wrapper for spacing */
+      .cuot-btn-wrapper {
+        margin-top: 3rem; /* Generous space above button */
+        margin-bottom: 2rem;
+        clear: both; /* Ensures it drops below floats */
+      }
+      
       .cuot-btn {
-        display: block; 
-        width: fit-content; 
+        display: inline-block; 
         background-color: #ec7b5d; /* Brand Orange */
         color: #ffffff !important;
-        font-family: 'Comfortaa', cursive;
+        font-family: 'Comfortaa', cursive; /* Match font in screenshot */
         font-weight: 700;
-        padding: 14px 40px; 
-        border-radius: 8px;
+        font-size: 1rem;
+        padding: 12px 32px; 
+        border-radius: 8px; /* Slightly rounded */
         text-decoration: none;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 6px rgba(236, 123, 93, 0.3);
+        box-shadow: 0 4px 10px rgba(236, 123, 93, 0.25);
         text-align: center;
-        
-        /* Spacing (Witregel) & Centering */
-        margin: 3rem auto; 
       }
-      .cuot-btn:hover { background-color: #d66a4d; transform: translateY(-2px); }
+      .cuot-btn:hover { background-color: #d66a4d; transform: translateY(-1px); box-shadow: 0 6px 12px rgba(236, 123, 93, 0.35); }
       
+      /* Table of Contents */
+      .cuot-toc {
+          background-color: #fff;
+          border: 1px solid #eee;
+          border-radius: 8px;
+          padding: 1.5rem;
+          margin-bottom: 2rem;
+          display: inline-block;
+          min-width: 250px;
+      }
+      .cuot-toc-title {
+          font-family: 'Comfortaa', cursive;
+          color: #ec7b5d;
+          font-weight: 700;
+          margin-bottom: 0.5rem;
+          display: block;
+      }
+      .cuot-toc-list {
+          list-style: none !important;
+          padding-left: 0 !important;
+          margin-bottom: 0 !important;
+      }
+      .cuot-toc-list li {
+          margin-bottom: 0.25rem !important;
+      }
+      .cuot-toc-list a {
+          text-decoration: none;
+          color: #575756;
+          font-size: 0.95rem;
+          border-bottom: 1px dotted transparent;
+          transition: all 0.2s;
+      }
+      .cuot-toc-list a:hover {
+          color: #ec7b5d;
+          border-bottom-color: #ec7b5d;
+      }
+
       /* Specific Section Styles */
       .cuot-cta-block {
         background-color: #fdf6f4; /* Light Brand BG */
@@ -183,147 +279,288 @@ export default function App() {
       }
       
       @media (max-width: 768px) {
-        #cuot-blog-wrapper h1 { font-size: 2rem; }
         .cuot-grid { flex-direction: column; }
         .cuot-btn { width: 100%; box-sizing: border-box; } /* Full width on mobile */
       }
     </style>
   `;
 
+  // --- HELPER: Highlight Keywords ---
+  const highlightKeywords = (text: string, keywordsStr: string | undefined) => {
+      if (!text) return "";
+      
+      // Step 1: Clean Markdown bolding (**) from the AI output completely
+      // This prevents the issue where the AI writes "**keyword**" and we wrap it again
+      let cleanText = text.replace(/\*\*/g, '');
+
+      if (!keywordsStr) return cleanText;
+      
+      // Split keywords by comma, trim, and sort by length desc to match longest phrases first
+      const keys = keywordsStr.split(',').map(k => k.trim()).filter(k => k.length > 2).sort((a, b) => b.length - a.length);
+      
+      let highlightedText = cleanText;
+      
+      // Use a placeholder strategy to avoid re-replacing inside HTML tags or already replaced tags
+      keys.forEach((key) => {
+          const regex = new RegExp(`(${key})`, 'gi');
+          highlightedText = highlightedText.replace(regex, '<strong class="cuot-keyword">$1</strong>');
+      });
+      return highlightedText;
+  };
+
   // --- PROFESSIONAL HTML GENERATOR ENGINE ---
-  const convertToHtmlString = (blog: GeneratedBlog, currentImages: ImageData[], videoInputUrl: string) => {
+  const convertToHtmlString = (blog: GeneratedBlog, currentContentImages: ImageData[], currentHeaderImage: ImageData | null, videoInputUrl: string, inputKeywords: string) => {
       let html = BLOG_CSS;
 
       // 1. BRAND STYLE WRAPPER START
       html += `<div id="cuot-blog-wrapper">`;
 
-      // 2. META DATA (Hidden or Styled for review)
+      // 2. META DATA
       html += `<!-- 
-         SEO TITLE: ${blog.title}
+         POST TITLE: ${blog.title} 
          META DESC: ${blog.metaDescription}
          KEYWORDS: ${blog.keywordsUsed?.join(', ')}
          STRATEGY: ${blog.geoStrategy}
       -->`;
 
-      // 3. TITLE SECTION
-      html += `
-        <header class="cuot-section">
-           <h1>${blog.title}</h1>
-           <p style="font-style: italic; color: #888;">${blog.metaDescription}</p>
-        </header>
-      `;
+      // 3. HEADER SECTION WITH HERO IMAGE
+      html += `<header class="cuot-section">`;
+      html += `<p style="font-style: italic; color: #888; margin-bottom: 1.5rem;">${blog.metaDescription}</p>`;
+      
+      // Header Image Injection
+      if (currentHeaderImage) {
+          const src = `data:${currentHeaderImage.mimeType};base64,${currentHeaderImage.base64}`;
+          const alt = blog.headerImageAlt || blog.title || "Creative Use of Technology Header";
+          html += `<img src="${src}" alt="${alt}" title="${alt}" class="cuot-header-image" width="1200" height="600" />`;
+      }
+      
+      html += `</header>`;
 
-      // Prepare Video Embed (Smart Loading for YouTube to ensure thumbnail)
+      // Prepare Video Embed (Responsive Iframe)
       const videoInfo = parseVideo(videoInputUrl);
       let videoHtml = '';
       
       if (videoInfo) {
-        if (videoInfo.type === 'youtube') {
-            // Use srcdoc to show thumbnail and load video on click. 
-            // This prevents "Video unavailable" errors and ensures standard thumbnail look.
-            videoHtml = `
-            <div class="cuot-video-container">
-              <iframe 
-                src="https://www.youtube.com/embed/${videoInfo.id}"
-                srcdoc="<style>*{padding:0;margin:0;overflow:hidden}html,body{height:100%}img,span{position:absolute;width:100%;top:0;bottom:0;margin:auto}span{height:1.5em;text-align:center;font:48px/1.5 sans-serif;color:white;text-shadow:0 0 0.5em black}</style><a href=https://www.youtube.com/embed/${videoInfo.id}?autoplay=1><img src=https://img.youtube.com/vi/${videoInfo.id}/hqdefault.jpg alt='Video Thumbnail'><span>▶</span></a>"
-                frameborder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowfullscreen
-                title="Video Speler"
-              ></iframe>
-            </div>`;
-        } else if (videoInfo.type === 'vimeo') {
-             videoHtml = `
-            <div class="cuot-video-container">
-              <iframe src="https://player.vimeo.com/video/${videoInfo.id}" title="Video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-            </div>`;
-        }
+          // --- SEO RICH RESULTS VIDEO OBJECT ---
+          // This ensures Google understands the video context, separate from the iframe
+          const videoSchema = {
+             "@context": "https://schema.org",
+             "@type": "VideoObject",
+             "name": `Video: ${blog.title}`, // Fallback title based on blog
+             "description": `Video over ${blog.keywordsUsed?.join(', ') || blog.title}. ${blog.metaDescription}`,
+             "thumbnailUrl": videoInfo.thumb || "https://creativeuseoftechnology.com/wp-content/uploads/placeholder-video.jpg",
+             "uploadDate": new Date().toISOString(), // Required field. Using current date as 'content generated' date.
+             "embedUrl": videoInfo.type === 'youtube' ? `https://www.youtube.com/embed/${videoInfo.id}` : `https://player.vimeo.com/video/${videoInfo.id}`,
+             "contentUrl": videoInfo.link
+          };
+          
+          // Inject Schema
+          html += `<script type="application/ld+json">${JSON.stringify(videoSchema)}</script>`;
+
+          if (videoInfo.type === 'youtube') {
+              // Use srcdoc for YouTube to force thumbnail loading (Lite Embed Pattern)
+              const thumb = videoInfo.thumb || `https://img.youtube.com/vi/${videoInfo.id}/hqdefault.jpg`;
+              videoHtml = `
+              <div class="cuot-video-container">
+                 <iframe 
+                    src="https://www.youtube.com/embed/${videoInfo.id}" 
+                    srcdoc="<style>*{padding:0;margin:0;overflow:hidden}html,body{height:100%}img,span{position:absolute;width:100%;top:0;bottom:0;margin:auto}span{height:1.5em;text-align:center;font:48px/1.5 sans-serif;color:white;text-shadow:0 0 0.5em black}</style><a href=https://www.youtube.com/embed/${videoInfo.id}?autoplay=1><img src=${thumb} alt='Video'><span>▶</span></a>"
+                    title="YouTube video player" 
+                    frameborder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allowfullscreen
+                    loading="lazy"
+                 ></iframe>
+              </div>`;
+          } else if (videoInfo.type === 'vimeo') {
+               videoHtml = `
+               <div class="cuot-video-container">
+                  <iframe 
+                    src="https://player.vimeo.com/video/${videoInfo.id}" 
+                    title="Vimeo video player" 
+                    frameborder="0" 
+                    allow="autoplay; fullscreen" 
+                    allowfullscreen
+                    loading="lazy"
+                  ></iframe>
+               </div>`;
+          }
       }
 
+      // --- NEW: TABLE OF CONTENTS GENERATOR ---
+      // We collect headings from sections to build a TOC
+      // Only include headings that actually exist
+      const sections = blog.sections || [];
+      const tocItems = sections
+          .map((s, idx) => ({ heading: s.heading, id: `section-${idx}` }))
+          .filter(item => item.heading && item.heading.length > 0);
+
       // 4. DYNAMIC SECTIONS
-      blog.sections.forEach((section, idx) => {
+      sections.forEach((section, idx) => {
           const imageKey = idx.toString();
-          const imgData = currentImages[idx];
+          const imgData = currentContentImages[idx];
           const hasImage = blog.imageAltMap && blog.imageAltMap[imageKey] && imgData;
+          const sectionId = `section-${idx}`;
           
           let imageHtml = '';
           if (hasImage) {
              const src = `data:${imgData.mimeType};base64,${imgData.base64}`;
              const alt = blog.imageAltMap[imageKey] || "Creative Use of Technology";
-             imageHtml = `<img src="${src}" alt="${alt}" title="${alt}" class="cuot-img-responsive" width="800" height="600" />`;
+             imageHtml = `<img src="${src}" alt="${alt}" title="${alt}" class="cuot-img-responsive" width="600" height="400" loading="lazy" />`;
           }
 
           let ctaHtml = '';
           if (section.ctaText && section.ctaUrl) {
-              ctaHtml = `<a href="${section.ctaUrl}" class="cuot-btn">${section.ctaText}</a>`;
+              // Wrapped in div for safe spacing
+              ctaHtml = `<div class="cuot-btn-wrapper"><a href="${section.ctaUrl}" class="cuot-btn">${section.ctaText}</a></div>`;
           }
 
-          html += `<section class="cuot-section">`;
+          // Apply Keyword Highlighting
+          const processedContent = highlightKeywords(section.content, inputKeywords);
 
-          // Inject video after the first section (usually intro) if it exists
-          if (idx === 1 && videoHtml) {
-             html += videoHtml;
-          }
+          html += `<section class="cuot-section" id="${sectionId}">`;
 
-          switch (section.layout) {
-              case 'two_column_image_right':
-                  if (hasImage) {
+          // Inject TOC after the FIRST text block (Hero/Intro) but before the rest
+          if (idx === 0 && tocItems.length > 1) {
+              html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}`;
+              
+              // If hero has image, float it
+              if (hasImage && section.layout === 'hero') {
+                 html += `<div style="margin-bottom: 1.5rem; float: right; margin-left: 2rem; max-width: 40%;">${imageHtml}</div>`;
+              }
+              
+              html += `${processedContent}`;
+              
+              // TOC INJECTION
+              html += `
+              <div class="cuot-toc">
+                 <span class="cuot-toc-title">Inhoudsopgave</span>
+                 <ul class="cuot-toc-list">
+                    ${tocItems.slice(1).map(item => `<li><a href="#${item.id}">${item.heading}</a></li>`).join('')}
+                    <li><a href="#faq-section">Veelgestelde Vragen</a></li>
+                 </ul>
+              </div>
+              `;
+              
+              html += `${ctaHtml}`;
+          } else {
+              // Inject video after the first section (standard logic)
+              if (idx === 1 && videoHtml) {
+                 html += videoHtml;
+              }
+
+              switch (section.layout) {
+                  case 'two_column_image_right':
+                      if (hasImage) {
+                          html += `
+                          <div class="cuot-grid">
+                            <div class="cuot-col">
+                               ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                               ${processedContent}
+                               ${ctaHtml}
+                            </div>
+                            <div class="cuot-col">
+                               ${imageHtml}
+                            </div>
+                          </div>`;
+                      } else {
+                          html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${processedContent}${ctaHtml}`;
+                      }
+                      break;
+
+                  case 'two_column_image_left':
+                      if (hasImage) {
+                          html += `
+                          <div class="cuot-grid">
+                            <div class="cuot-col">
+                               ${imageHtml}
+                            </div>
+                            <div class="cuot-col">
+                               ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                               ${processedContent}
+                               ${ctaHtml}
+                            </div>
+                          </div>`;
+                      } else {
+                           html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${processedContent}${ctaHtml}`;
+                      }
+                      break;
+
+                  case 'cta_block':
                       html += `
-                      <div class="cuot-grid">
-                        <div class="cuot-col">
-                           ${section.heading ? `<h2>${section.heading}</h2>` : ''}
-                           ${section.content}
-                           ${ctaHtml}
-                        </div>
-                        <div class="cuot-col">
-                           ${imageHtml}
-                        </div>
+                      <div class="cuot-cta-block">
+                         ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                         ${processedContent}
+                         ${ctaHtml}
                       </div>`;
-                  } else {
-                      html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${section.content}${ctaHtml}`;
-                  }
-                  break;
+                      break;
 
-              case 'two_column_image_left':
-                  if (hasImage) {
-                      html += `
-                      <div class="cuot-grid">
-                        <div class="cuot-col">
-                           ${imageHtml}
-                        </div>
-                        <div class="cuot-col">
-                           ${section.heading ? `<h2>${section.heading}</h2>` : ''}
-                           ${section.content}
-                           ${ctaHtml}
-                        </div>
-                      </div>`;
-                  } else {
-                       html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${section.content}${ctaHtml}`;
-                  }
-                  break;
-
-              case 'cta_block':
-                  html += `
-                  <div class="cuot-cta-block">
-                     ${section.heading ? `<h2>${section.heading}</h2>` : ''}
-                     ${section.content}
-                     ${ctaHtml}
-                  </div>`;
-                  break;
-
-              case 'full_width':
-              case 'hero':
-              default:
-                  html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}`;
-                  if (hasImage && section.layout === 'hero') {
-                      html += `<div style="margin-bottom: 1.5rem;">${imageHtml}</div>`;
-                  }
-                  html += `${section.content} ${ctaHtml}`;
-                  break;
+                  case 'full_width':
+                  case 'hero':
+                  default:
+                      html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}`;
+                      if (hasImage) {
+                           html += `<div style="margin-bottom: 1.5rem; float: right; margin-left: 2rem; max-width: 40%;">${imageHtml}</div>`;
+                      }
+                      html += `${processedContent} ${ctaHtml}`;
+                      break;
+              }
           }
 
           html += `</section>`;
       });
+
+      // 5. FAQ SECTION + SCHEMA
+      if (blog.faq && blog.faq.length > 0) {
+          html += `
+          <section class="cuot-section cuot-faq-container" id="faq-section">
+             <h2 style="margin-bottom: 2rem; text-align: center;">Veelgestelde Vragen</h2>
+             ${blog.faq.map(item => `
+               <div class="cuot-faq-item">
+                 <div class="cuot-faq-question">${item.question}</div>
+                 <div class="cuot-faq-answer">${highlightKeywords(item.answer, inputKeywords)}</div>
+               </div>
+             `).join('')}
+          </section>
+          `;
+
+          const faqSchema = {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "mainEntity": blog.faq.map(item => ({
+              "@type": "Question",
+              "name": item.question,
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": item.answer
+              }
+            }))
+          };
+          html += `<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`;
+      }
+      
+      // --- NEW: BREADCRUMB SCHEMA (SEO OPTIMIZATION) ---
+      // Adds invisible structure data for Google
+      const breadcrumbSchema = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [{
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://creativeuseoftechnology.com/"
+        },{
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Blog",
+          "item": "https://creativeuseoftechnology.com/blog/"
+        },{
+          "@type": "ListItem",
+          "position": 3,
+          "name": blog.title
+        }]
+      };
+      html += `<script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>`;
 
       html += `</div>`; // Close wrapper
       return html;
@@ -338,10 +575,18 @@ export default function App() {
     try {
       // 1. Analyze Images
       setStatus(AppStatus.ANALYZING_IMAGES);
-      setProgressMessage("Afbeeldingen analyseren voor Creative Use of Technology context...");
+      
+      // Analyze Header Image
+      let headerImageAnalysis = "Geen header foto.";
+      if (headerImage.length > 0) {
+          setProgressMessage("Header foto analyseren...");
+          headerImageAnalysis = await analyzeImageContent(headerImage[0].base64, headerImage[0].mimeType);
+      }
 
+      // Analyze Content Images
+      setProgressMessage("Content foto's analyseren...");
       const analyzedImageContexts: string[] = [];
-      for (const img of images) {
+      for (const img of contentImages) {
         const description = await analyzeImageContent(img.base64, img.mimeType);
         analyzedImageContexts.push(description);
       }
@@ -368,14 +613,15 @@ export default function App() {
         userIntent, 
         selectedProducts,
         analyzedImageContexts,
+        headerImageAnalysis,
         productDetails,
-        extraInstructions // Pass dynamic user instructions here
+        extraInstructions
       );
       
       setGeneratedBlogData(blogData);
       
       // Convert to HTML string for the editor (pass video url)
-      const initialHtml = convertToHtmlString(blogData, images, videoUrl);
+      const initialHtml = convertToHtmlString(blogData, contentImages, headerImage[0] || null, videoUrl, keywords);
       setEditorContent(initialHtml);
 
       setStatus(AppStatus.COMPLETED);
@@ -397,7 +643,7 @@ export default function App() {
       setGeneratedBlogData(updatedBlog);
       
       // Re-render HTML with new text but KEEP existing images and video
-      const newHtml = convertToHtmlString(updatedBlog, images, videoUrl);
+      const newHtml = convertToHtmlString(updatedBlog, contentImages, headerImage[0] || null, videoUrl, keywords);
       setEditorContent(newHtml);
       
       setModificationPrompt('');
@@ -417,6 +663,7 @@ export default function App() {
     setIsLoadingSuggestions(true);
     setSuggestions([]);
     try {
+      // Pass the current keywords to filter them out
       const sugs = await getKeywordSuggestions(keywords);
       setSuggestions(sugs);
     } catch (e) { console.error(e); } 
@@ -514,7 +761,7 @@ export default function App() {
                     className="text-xs text-brand-orange hover:text-[#d66a4d] font-bold flex items-center gap-1 bg-brand-light px-2 py-1 rounded-full transition-colors"
                   >
                     {isLoadingSuggestions ? <RefreshCw className="animate-spin" size={10} /> : <Sparkles size={10} />}
-                    AI Suggesties
+                    Nieuwe AI Suggesties
                   </button>
                 </div>
                 
@@ -531,7 +778,7 @@ export default function App() {
                  {/* Suggestions Panel */}
                 {suggestions.length > 0 && (
                   <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Aanbevolen:</p>
+                    <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Aanbevolen (Hoog Volume):</p>
                     <div className="flex flex-col gap-2">
                       {suggestions.map((s, idx) => (
                         <div key={idx} className="flex items-center justify-between bg-white border border-slate-100 p-2 rounded hover:border-brand-orange/30 transition-colors group cursor-pointer" onClick={() => addSuggestion(s.keyword)}>
@@ -560,43 +807,11 @@ export default function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-brand-grey mb-1">
-                  Extra Instructies / Ideeën
-                </label>
-                <div className="relative">
-                  <PenTool className="absolute left-3 top-3 text-slate-400" size={16} />
-                  <textarea
-                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all h-24 text-sm resize-none"
-                    placeholder="Bijv. 'Gebruik humor', 'Focus op duurzaamheid', 'Noem specifiek het materiaal bamboe'."
-                    value={extraInstructions}
-                    onChange={(e) => setExtraInstructions(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-brand-grey mb-1">
-                  Video URL (Optioneel)
-                </label>
-                <div className="relative">
-                  <Video className="absolute left-3 top-3 text-slate-400" size={16} />
-                  <input
-                    type="text"
-                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all text-sm"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                  />
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1 pl-1">YouTube of Vimeo links worden automatisch ingesloten.</p>
-              </div>
-
               {/* Sitemap & Product Selector */}
               <div className="relative border-t border-slate-100 pt-4">
                 <div className="flex justify-between items-center mb-1">
                      <label className="block text-sm font-bold text-brand-grey">
-                        Focus Pagina's / Producten / Blogs
+                        Focus Pagina's / Producten
                      </label>
                      <button 
                         onClick={handleFetchSitemap}
@@ -666,7 +881,55 @@ export default function App() {
                 </div>
               </div>
 
-              <ImageUploader images={images} onImagesChange={setImages} />
+              {/* Header Image Uploader (Single) */}
+              <div className="border-t border-slate-100 pt-4">
+                  <ImageUploader 
+                    images={headerImage} 
+                    onImagesChange={setHeaderImage} 
+                    label="Hoofd Foto (Header/Hero)"
+                    maxFiles={1}
+                  />
+              </div>
+
+              {/* Content Images Uploader (Multiple) */}
+              <div className="border-t border-slate-100 pt-4">
+                  <ImageUploader 
+                    images={contentImages} 
+                    onImagesChange={setContentImages} 
+                    label="Content Foto's (Voor in de tekst)"
+                  />
+              </div>
+
+              <div className="border-t border-slate-100 pt-4">
+                <label className="block text-sm font-bold text-brand-grey mb-1">
+                  Extra Instructies / Ideeën
+                </label>
+                <div className="relative">
+                  <PenTool className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <textarea
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all h-20 text-sm resize-none"
+                    placeholder="Bijv. 'Gebruik humor', 'Focus op duurzaamheid'..."
+                    value={extraInstructions}
+                    onChange={(e) => setExtraInstructions(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 pb-2">
+                <label className="block text-sm font-bold text-brand-grey mb-1">
+                  Video URL (Optioneel)
+                </label>
+                <div className="relative">
+                  <Video className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all text-sm"
+                    placeholder="YouTube URL..."
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                  />
+                </div>
+              </div>
 
               <button
                 onClick={handleGenerate}
@@ -693,10 +956,10 @@ export default function App() {
            <div className="bg-brand-light p-6 rounded-xl border border-brand-orange/20">
             <h3 className="font-display font-bold text-brand-grey mb-3 flex items-center gap-2">
               <Lightbulb size={18} className="text-brand-orange" />
-              Tip: Afbeeldingen
+              Tip: Afbeeldingen SEO
             </h3>
             <p className="text-sm text-brand-grey leading-relaxed">
-                De HTML code bevat de afbeeldingen direct in de code (Base64). Je hoeft ze dus <strong>niet</strong> meer apart te uploaden in WordPress. Gewoon kopiëren en plakken in de "Tekst" of "HTML" tab van je editor.
+                De AI genereert nu automatisch <strong>ALT-teksten</strong> en <strong>Titels</strong> voor zowel je hoofdfoto als je content foto's. Deze worden direct in de HTML code verwerkt voor optimale vindbaarheid in Google Afbeeldingen.
             </p>
           </div>
         </div>

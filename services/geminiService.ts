@@ -21,19 +21,42 @@ MERK IDENTITEIT (Creative Use of Technology):
 const BLOG_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    title: { type: Type.STRING },
-    metaDescription: { type: Type.STRING },
+    title: { 
+      type: Type.STRING,
+      description: "H1 titel (max 12 woorden). Geen herhaling." 
+    },
+    metaDescription: { 
+      type: Type.STRING,
+      description: "Meta omschrijving (max 160 karakters)."
+    },
     geoStrategy: { type: Type.STRING },
+    headerImageAlt: { type: Type.STRING, description: "SEO ALT tekst." },
     keywordsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
     internalLinksUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
+    faq: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          question: { 
+            type: Type.STRING, 
+            description: "De vraag. KORT (1 zin). GEEN enters/newlines." 
+          },
+          answer: { 
+            type: Type.STRING, 
+            description: "Het antwoord. Beknopt. GEEN enters/newlines." 
+          }
+        }
+      }
+    },
     imageAltMap: {
       type: Type.OBJECT,
       properties: {
-        "0": { type: Type.STRING },
-        "1": { type: Type.STRING },
-        "2": { type: Type.STRING },
-        "3": { type: Type.STRING },
-        "4": { type: Type.STRING }
+        "0": { type: Type.STRING, description: "SEO ALT sectie 1." },
+        "1": { type: Type.STRING, description: "SEO ALT sectie 2." },
+        "2": { type: Type.STRING, description: "SEO ALT sectie 3." },
+        "3": { type: Type.STRING, description: "SEO ALT sectie 4." },
+        "4": { type: Type.STRING, description: "SEO ALT sectie 5." }
       }
     },
     sections: {
@@ -44,12 +67,19 @@ const BLOG_SCHEMA = {
           layout: { type: Type.STRING, enum: ['hero', 'full_width', 'two_column_image_left', 'two_column_image_right', 'cta_block'] },
           heading: { type: Type.STRING },
           content: { type: Type.STRING },
-          ctaText: { type: Type.STRING },
+          ctaText: { type: Type.STRING, description: "Beschrijvende knop tekst (bijv: 'Bekijk wereldkaarten')." },
           ctaUrl: { type: Type.STRING }
         }
       }
     }
   }
+};
+
+const cleanJson = (text: string): string => {
+  if (!text) return "{}";
+  // Remove markdown code blocks if present
+  let cleaned = text.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+  return cleaned.trim();
 };
 
 export const analyzeImageContent = async (base64: string, mimeType: string): Promise<string> => {
@@ -65,7 +95,8 @@ export const analyzeImageContent = async (base64: string, mimeType: string): Pro
     });
     return response.text || "Geen beschrijving.";
   } catch (error) {
-    return "Kon afbeelding niet analyseren.";
+    console.warn("Image analysis failed", error);
+    return "Kon afbeelding niet analyseren. Ga uit van een algemene context passend bij het onderwerp.";
   }
 };
 
@@ -73,78 +104,105 @@ export const generateBlogContent = async (
   keywords: string,
   userIntent: string,
   focusedProducts: ProductEntry[],
-  imageContexts: string[],
+  imageContexts: string[], // Content images
+  headerImageContext: string, // Header image specific context
   productDetails: string[], // Scraped content
   extraInstructions: string
 ): Promise<GeneratedBlog> => {
   
-  const productContextList = focusedProducts.map(p => `- TARGET ITEM: "${p.name}" -> URL: "${p.url}"`).join('\n');
+  const productContextList = focusedProducts.map(p => `- LINK TARGET: "${p.name}" -> URL: "${p.url}"`).join('\n');
   
   const detailedProductContext = productDetails.map((detail, index) => 
-     `--- START INFO VOOR TARGET ITEM: ${focusedProducts[index]?.name} ---\n${detail}\n--- EINDE INFO ---\n`
+     `[PRODUCT INFO START: ${focusedProducts[index]?.name}]\n${detail}\n[PRODUCT INFO END]\n`
   ).join('\n');
 
   const productInstruction = focusedProducts.length > 0
-    ? `FOCUS & LINKING STRATEGIE (STRIKTE REGELS):
-       1. Je mag voor Knoppen (CTA) en Interne Links in de tekst ALLEEN linken naar de URL's in de onderstaande lijst.
-       2. Verzin GEEN andere URL's. Als het niet in de lijst staat, link er niet naar.
+    ? `LINKING RULES (STRICT):
+       1. ONLY link to the URLs listed below in the "AVAILABLE LINKS" section.
+       2. Do NOT invent new URLs.
        
-       BESCHIKBARE LINKS (Gebruik deze voor buttons en tekst links):
-       ${productContextList}
-       
-       CONTEXT INFORMATIE (Gebruik dit voor de inhoud):
-       ${detailedProductContext}`
-    : `Gebruik sitemap structuur voor algemene links.`;
+       AVAILABLE LINKS:
+       ${productContextList}`
+    : `Use sitemap structure for general linking.`;
 
   const prompt = `
-    Je bent een Senior Content Marketeer voor Creative Use of Technology.
+    ROLE: Senior Content Marketeer for 'Creative Use of Technology'.
     
     ${BRAND_VOICE}
     ${SITEMAP_CONTEXT}
     
-    DOEL: Schrijf een visueel aantrekkelijke, SEO-geoptimaliseerde blogpost in JSON formaat.
+    TASK: Write a visually engaging, SEO-optimized blog post in valid JSON format.
     
-    INPUT:
-    - Keywords: ${keywords}
-    - Intent: ${userIntent}
-    - Afbeeldingen Context: ${imageContexts.join('\n')}
-    - SPECIFIEKE GEBRUIKERSINSTRUCTIES: "${extraInstructions}"
+    === INPUT DATA ===
+    TOPIC/KEYWORDS: ${keywords}
+    USER INTENT: ${userIntent}
+    USER INSTRUCTIONS: "${extraInstructions}"
     
+    HEADER IMAGE CONTEXT: ${headerImageContext}
+    CONTENT IMAGES CONTEXT: 
+    ${imageContexts.map((ctx, i) => `Image ${i}: ${ctx}`).join('\n')}
+    
+    === PRODUCT CONTEXT (SOURCE MATERIAL) ===
+    ${detailedProductContext}
+    
+    === STRATEGY INSTRUCTIONS ===
     ${productInstruction}
 
-    BELANGRIJKE EISEN:
-    1. **Titel & Koppen (Sentence case):** Gebruik strikt 'Sentence case'. NIET: "Elk Woord Een Hoofdletter".
-       - FOUT: "Houten Wereldkaarten Voor Aan De Muur"
-       - GOED: "Houten wereldkaarten voor aan de muur"
-    2. **SEO Structuur (H1, H2, H3):**
-       - De 'title' van de blog is de H1.
-       - Elke 'section' met een 'heading' is automatisch een H2.
-       - Gebruik binnen de 'content' van de secties HTML <h3> tags voor sub-onderwerpen. Dit is cruciaal voor de SEO-structuur. Zorg voor een logische hiërarchie.
-    3. **Afbeeldingen SEO:** Genereer SEO-geoptimaliseerde ALT teksten.
-    4. **Links & Knoppen:** Link alleen naar de opgegeven URL's.
-    5. **Geen Shortcodes:** Genereer GEEN WooCommerce shortcodes.
+    === WRITING GUIDELINES ===
+    1. **Headings:** Use Sentence case. Include keywords naturally. No repetition in H1.
+    2. **Content:** Write converting copy. If a section has an image, reference the image content in the text.
+    3. **Geo-Targeting:** Subtly mention 'Dutch craftsmanship' or 'Made in Breda' where appropriate.
+    4. **Formatting:** NO markdown bolding (**) in the JSON strings.
+    5. **JSON SYNTAX (CRITICAL):** 
+       - Do NOT use newlines (\n) or carriage returns (\r) inside JSON string values. 
+       - Keep "question" and "answer" fields on a single line.
+       - Do not add trailing commas.
+    6. **CTA Buttons:** Use descriptive anchor text (e.g. "Ontwerp jouw lamp" instead of "Klik hier").
 
-    LAYOUT TYPES:
-    - **hero**: Pakkende titel (H1), introductie.
-    - **two_column_image_left/right**: Tekst naast beeld (H2 koppen).
-    - **full_width**: Voor tekst zonder direct plaatje. Gebruik hierin <h3> tags als dat de leesbaarheid verbetert.
-    - **cta_block**: Een duidelijke call-to-action blok.
+    === LAYOUT TYPES ===
+    - hero: Intro section.
+    - two_column_image_left/right: Use when content images are available.
+    - full_width: Text only.
+    - cta_block: Call to action.
 
-    OUTPUT: JSON volgens schema.
+    OUTPUT: JSON ONLY. Adhere to the schema.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview', 
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: BLOG_SCHEMA
+        responseSchema: BLOG_SCHEMA,
+        temperature: 0.2,
+        topK: 40, // Limits vocabulary to preventing "looping" on low probability tokens
+        maxOutputTokens: 8192
       }
     });
 
-    if (!response.text) throw new Error("Geen data.");
-    return JSON.parse(response.text) as GeneratedBlog;
+    const text = response.text;
+    if (!text) throw new Error("Geen data ontvangen van AI.");
+    
+    try {
+        const parsed = JSON.parse(cleanJson(text)) as GeneratedBlog;
+        // Robust Safety Checks for Arrays
+        if (!parsed.sections) parsed.sections = [];
+        if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
+        if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
+        if (!parsed.faq) parsed.faq = [];
+        
+        // Additional safety: Ensure section content is string
+        parsed.sections.forEach(s => {
+            if (!s.content) s.content = "";
+            if (!s.heading) s.heading = "";
+        });
+        
+        return parsed;
+    } catch (parseError) {
+        console.error("JSON Parse Error:", parseError, "Raw Text:", text);
+        throw new Error("Fout bij verwerken van AI antwoord. Probeer het opnieuw (Data was incompleet).");
+    }
   } catch (error) {
     console.error("Fout bij blog generatie:", error);
     throw error;
@@ -156,39 +214,90 @@ export const modifyBlogContent = async (
   modificationRequest: string
 ): Promise<GeneratedBlog> => {
   const prompt = `
-    Pas de blog aan. Behoud de JSON structuur exact.
-    Huidige Blog JSON: ${JSON.stringify(currentBlog)}
-    Instructie: "${modificationRequest}"
+    Modify the following blog post based on the instruction. Keep exact JSON structure.
     
-    BELANGRIJK: 
-    - Behoud de 'Sentence case' in titels.
-    - Zorg dat de H1, H2, H3 structuur logisch blijft voor SEO.
+    CURRENT BLOG: ${JSON.stringify(currentBlog)}
+    INSTRUCTION: "${modificationRequest}"
+    
+    RULES: 
+    - Keep 'Sentence case' in titles.
+    - NO markdown bolding (**).
+    - NO newlines inside JSON strings.
+    - Ensure valid JSON output.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        responseSchema: BLOG_SCHEMA
+        responseSchema: BLOG_SCHEMA,
+        temperature: 0.2
       }
     });
-    if (!response.text) throw new Error("Fout.");
-    return JSON.parse(response.text) as GeneratedBlog;
+    
+    const text = response.text;
+    if (!text) throw new Error("Geen data.");
+    
+    const parsed = JSON.parse(cleanJson(text)) as GeneratedBlog;
+    
+    // Robust Safety Checks for Arrays
+    if (!parsed.sections) parsed.sections = [];
+    if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
+    if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
+    if (!parsed.faq) parsed.faq = [];
+
+    return parsed;
   } catch (error) {
+    console.error("Modificatie error:", error);
     throw error;
   }
 };
 
-export const getKeywordSuggestions = async (topic: string): Promise<KeywordSuggestion[]> => {
-    const prompt = `SEO suggesties voor: "${topic}". JSON array: keyword, volume, competition, rationale.`;
+export const getKeywordSuggestions = async (currentTopic: string): Promise<KeywordSuggestion[]> => {
+    // Check if the user has already entered keywords (comma separated)
+    const existingKeywords = currentTopic.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    const topicContext = existingKeywords.length > 0 ? existingKeywords[0] : "duurzaam design";
+    
+    const exclusionPrompt = existingKeywords.length > 0 
+      ? `Avoid these used keywords: ${existingKeywords.join(', ')}.` 
+      : "";
+
+    const prompt = `
+      Role: SEO Specialist.
+      Task: Provide 5 NEW, relevant long-tail keyword suggestions for: "${topicContext}".
+      ${exclusionPrompt}
+      
+      Criteria:
+      1. High search volume, reasonable competition.
+      2. Commercial or Informational intent.
+      3. Unique suggestions.
+      
+      Output JSON array: keyword, volume, competition, rationale.
+    `;
+    
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { keyword: {type:Type.STRING}, volume:{type:Type.STRING}, competition:{type:Type.STRING}, rationale:{type:Type.STRING}}}} }
+            config: { 
+              responseMimeType: "application/json", 
+              responseSchema: { 
+                type: Type.ARRAY, 
+                items: { 
+                  type: Type.OBJECT, 
+                  properties: { 
+                    keyword: {type:Type.STRING}, 
+                    volume:{type:Type.STRING}, 
+                    competition:{type:Type.STRING}, 
+                    rationale:{type:Type.STRING}
+                  }
+                }
+              } 
+            }
         });
-        return JSON.parse(response.text || "[]");
+        
+        return JSON.parse(cleanJson(response.text || "[]"));
     } catch { return []; }
 };
