@@ -1,3 +1,4 @@
+
 export interface ImageData {
   file: File;
   previewUrl: string;
@@ -43,6 +44,34 @@ export interface GeneratedBlog {
   // New fields for Creative Use of Technology specific features
   internalLinksUsed: string[]; // List of links inserted
   faq?: { question: string; answer: string; }[]; // Optional FAQ section
+  schemaMarkup?: string; // JSON-LD string provided by AI
+}
+
+export interface SocialPost {
+  platform: 'linkedin' | 'instagram' | 'facebook' | 'pinterest';
+  caption: string;
+  hashtags: string[];
+  visualSuggestion: string; // Suggestion on which image to use (e.g. "Header image" or "Close up of material")
+}
+
+export interface SocialMediaStrategy {
+  linkedin: SocialPost;
+  instagram: SocialPost;
+  facebook: SocialPost;
+  pinterest: SocialPost;
+}
+
+export interface SeoAnalysis {
+  score: number; // 0-100
+  wordCount: number;
+  readingTime: number; // in minutes
+  keywordDensity: number; // percentage
+  keywordCount: number;
+  issues: {
+    critical: string[];
+    warning: string[];
+    good: string[];
+  };
 }
 
 export enum AppStatus {
@@ -50,6 +79,7 @@ export enum AppStatus {
   ANALYZING_IMAGES = 'ANALYZING_IMAGES',
   GENERATING_TEXT = 'GENERATING_TEXT',
   MODIFYING_TEXT = 'MODIFYING_TEXT',
+  GENERATING_SOCIAL = 'GENERATING_SOCIAL',
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR'
 }

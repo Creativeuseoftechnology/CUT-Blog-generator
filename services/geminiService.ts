@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework } from "../types";
+import { GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy } from "../types";
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -36,6 +36,10 @@ const BLOG_SCHEMA = {
     headerImageAlt: { type: Type.STRING, description: "SEO ALT tekst." },
     keywordsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
     internalLinksUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
+    schemaMarkup: { 
+      type: Type.STRING, 
+      description: "Een valid JSON-LD string. BELANGRIJK: Bij 'AggregateRating' MOET 'bestRating': '10' toegevoegd worden omdat de score > 5 is." 
+    },
     faq: {
       type: Type.ARRAY,
       items: {
@@ -111,9 +115,14 @@ export const generateBlogContent = async (
   headerImageContext: string, // Header image specific context
   productDetails: string[], // Scraped content
   extraInstructions: string,
-  framework: ContentFramework
+  framework: ContentFramework,
+  aiSettings?: { temperature: number; topP: number }
 ): Promise<GeneratedBlog> => {
   
+  // Default values if not provided
+  const temperature = aiSettings?.temperature ?? 0.3;
+  const topP = aiSettings?.topP ?? 0.95;
+
   const productContextList = focusedProducts.map(p => `- LINK TARGET: "${p.name}" -> URL: "${p.url}"`).join('\n');
   
   const detailedProductContext = productDetails.map((detail, index) => 
@@ -165,12 +174,22 @@ export const generateBlogContent = async (
     4. SEO HYGIËNE: Max 1 H1 (is de titel). Gebruik H2/H3. Meta desc max 155 tekens (CTR focus).
     5. GEO-OPTIMALISATIE: Vermeld expliciet "Geproduceerd in Breda" of "Nederlands vakmanschap" in de tekst.
     
-    === SOCIAL PROOF (REVIEWS) ===
-    In de INPUT DATA staan mogelijk 'KLANT REVIEWS'. 
-    - Gebruik deze letterlijke quotes ("...") in de tekst om claims te onderbouwen.
-    - Bij Framework 'Business' of 'Comparison': Gebruik reviews als bewijs van kwaliteit.
-    - Bij Framework 'Inspiration': Gebruik reviews als voorbeeld van blije ontvangers.
-    - VERZIN GEEN REVIEWS. Gebruik alleen wat er staat of gebruik de algemene 9.6 score.
+    === SECTIE SOCIAL PROOF (VERPLICHT) ===
+    In de INPUT DATA staan mogelijk 'KLANT REVIEWS'.
+    - Maak EEN SPECIFIEKE SECTIE (H2) genaamd "Wat anderen vinden" (of variatie).
+    - Gebruik letterlijke quotes ("...") uit de data om kwaliteit en levering te bewijzen.
+    - Als er geen specifieke reviews zijn, gebruik de algemene bedrijfs-score van 9.6/10 op basis van 2000+ reviews.
+
+    === SCHEMA MARKUP (JSON-LD) ===
+    Genereer in het veld 'schemaMarkup' een complete JSON-LD string.
+    CRITICAAL VOOR GOOGLE:
+    1. 'Article' (BlogPosting) is de hoofd-entiteit.
+    2. Als er producten zijn: Voeg 'Product' schema toe.
+    3. VOOR REVIEW SCORES (AggregateRating):
+       - Als je 9.6 gebruikt, MOET je "bestRating": "10" toevoegen.
+       - Structuur: {"@type": "AggregateRating", "ratingValue": "9.6", "reviewCount": "2150", "bestRating": "10", "worstRating": "1"}
+       - Dit voorkomt "Out of range" errors in Google Search Console.
+    Zorg dat dit VALID JSON is (geen script tags).
 
     === FRAMEWORK SELECTIE ===
     ${frameworkInstruction}
@@ -209,7 +228,8 @@ export const generateBlogContent = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: BLOG_SCHEMA,
-        temperature: 0.3, // Iets creatiever voor inspiratie
+        temperature: temperature,
+        topP: topP,
         topK: 40,
         maxOutputTokens: 8192
       }
@@ -335,4 +355,118 @@ export const getKeywordSuggestions = async (currentTopic: string): Promise<Keywo
         
         return JSON.parse(cleanJson(response.text || "[]"));
     } catch { return []; }
+};
+
+export const getIntentSuggestions = async (currentTopic: string): Promise<string[]> => {
+    if (!currentTopic) return [];
+    
+    const prompt = `
+      Rol: SEO & GEO (Generative Engine Optimization) Specialist.
+      Onderwerp: "${currentTopic}"
+      
+      Genereer 5 concrete 'User Intents' (Klantvragen) die geoptimaliseerd zijn voor SEO (Google Search) en GEO (AI antwoorden).
+      Mix de volgende types:
+      1. Informatief (Hoe werkt..., Wat is de beste...)
+      2. Commercieel (Houten wereldkaart kopen, Relatiegeschenk graveren prijs)
+      3. Lokaal/Specifiek (Lasersnijden Breda, Custom wanddecoratie op maat)
+      
+      Zorg dat het vragen zijn die een gebruiker letterlijk zou intypen.
+      
+      Output: Alleen een JSON array met 5 strings.
+    `;
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: { 
+              responseMimeType: "application/json", 
+              responseSchema: { 
+                type: Type.ARRAY, 
+                items: { type: Type.STRING }
+              } 
+            }
+        });
+        
+        return JSON.parse(cleanJson(response.text || "[]"));
+    } catch { return []; }
+};
+
+export const generateSocialMediaStrategy = async (blog: GeneratedBlog): Promise<SocialMediaStrategy> => {
+  const prompt = `
+    Je bent de Social Media Manager van Creative Use of Technology.
+    Schrijf 4 social media posts ter promotie van de volgende blog.
+    
+    BLOG TITEL: ${blog.title}
+    SAMENVATTING: ${blog.metaDescription}
+    KEYWORDS: ${blog.keywordsUsed.join(', ')}
+    
+    DOELGROEPEN & PLATFORMS:
+    1. LinkedIn: Zakelijk, focus op relatiegeschenken/ambacht/duurzaamheid. Professioneel maar persoonlijk.
+    2. Instagram: Visueel, inspirerend, informeel. Focus op 'Interieur' of 'Cadeau'. Veel emoji's.
+    3. Facebook: Community gericht, deelbaar, lokaal (Breda).
+    4. Pinterest: SEO-gericht. Titel en beschrijving moeten rijk zijn aan zoekwoorden.
+    
+    OUTPUT: JSON Object met keys 'linkedin', 'instagram', 'facebook', 'pinterest'.
+    Elk object bevat: 'caption' (de tekst), 'hashtags' (array van tags), 'visualSuggestion' (welk type foto past hierbij).
+  `;
+
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      linkedin: {
+        type: Type.OBJECT,
+        properties: {
+          platform: { type: Type.STRING, enum: ['linkedin'] },
+          caption: { type: Type.STRING },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          visualSuggestion: { type: Type.STRING }
+        }
+      },
+      instagram: {
+        type: Type.OBJECT,
+        properties: {
+          platform: { type: Type.STRING, enum: ['instagram'] },
+          caption: { type: Type.STRING },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          visualSuggestion: { type: Type.STRING }
+        }
+      },
+      facebook: {
+        type: Type.OBJECT,
+        properties: {
+          platform: { type: Type.STRING, enum: ['facebook'] },
+          caption: { type: Type.STRING },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          visualSuggestion: { type: Type.STRING }
+        }
+      },
+      pinterest: {
+        type: Type.OBJECT,
+        properties: {
+          platform: { type: Type.STRING, enum: ['pinterest'] },
+          caption: { type: Type.STRING },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          visualSuggestion: { type: Type.STRING }
+        }
+      }
+    }
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.4
+      }
+    });
+
+    return JSON.parse(cleanJson(response.text || "{}")) as SocialMediaStrategy;
+  } catch (error) {
+    console.error("Social media generation failed:", error);
+    throw error;
+  }
 };

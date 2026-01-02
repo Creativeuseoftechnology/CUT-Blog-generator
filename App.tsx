@@ -1,18 +1,29 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { RichTextEditor } from './components/RichTextEditor';
-import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions } from './services/geminiService';
+import { SeoScorecard } from './components/SeoScorecard';
+import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions, getIntentSuggestions, generateSocialMediaStrategy } from './services/geminiService';
+import { analyzeContent } from './utils/seoAnalyzer';
 import { fetchSiteProducts, fetchPageContent } from './utils/sitemapService';
-import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework } from './types';
-import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate } from 'lucide-react';
+import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy, SocialPost, SeoAnalysis } from './types';
+import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate, Share2, Linkedin, Instagram, Facebook, Check, Compass, Sliders, ChevronDown, PanelRightOpen, PanelRightClose } from 'lucide-react';
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
+  const [activeTab, setActiveTab] = useState<'editor' | 'social'>('editor');
+  
   const [keywords, setKeywords] = useState('');
   const [userIntent, setUserIntent] = useState('');
   const [framework, setFramework] = useState<ContentFramework>('auto');
   const [extraInstructions, setExtraInstructions] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
+  
+  // AI Settings
+  const [aiTemperature, setAiTemperature] = useState(0.3);
+  const [aiTopP, setAiTopP] = useState(0.95);
+  
+  // New: Auto generate social posts option
+  const [autoGenerateSocial, setAutoGenerateSocial] = useState(false);
   
   // Product & Sitemap State
   const [sitemapUrl, setSitemapUrl] = useState('https://creativeuseoftechnology.com/sitemap_index.xml');
@@ -31,15 +42,37 @@ export default function App() {
   // Editor State
   const [editorContent, setEditorContent] = useState('');
   const [generatedBlogData, setGeneratedBlogData] = useState<GeneratedBlog | null>(null);
+  const [showSeoPanel, setShowSeoPanel] = useState(true);
+  const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
+  
+  // Social Media State
+  const [socialStrategy, setSocialStrategy] = useState<SocialMediaStrategy | null>(null);
   
   const [progressMessage, setProgressMessage] = useState('');
   const [modificationPrompt, setModificationPrompt] = useState('');
   
   const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  const [intentSuggestions, setIntentSuggestions] = useState<string[]>([]);
+  const [isLoadingIntents, setIsLoadingIntents] = useState(false);
+
   const [copiedHtml, setCopiedHtml] = useState(false);
 
-  // Removed automatic fetching useEffect
+  // --- EFFECT: Real-time SEO Analysis ---
+  useEffect(() => {
+    // Simple debounce via timeout
+    const timer = setTimeout(() => {
+        if (editorContent) {
+            const analysis = analyzeContent(editorContent, keywords);
+            setSeoAnalysis(analysis);
+        } else {
+            setSeoAnalysis(null);
+        }
+    }, 800); // Wait 800ms after last typing
+
+    return () => clearTimeout(timer);
+  }, [editorContent, keywords]);
 
   const handleFetchSitemap = async () => {
     setIsLoadingSitemap(true);
@@ -150,6 +183,12 @@ export default function App() {
           border-radius: 12px; /* Smooth rounded corners as per screenshot */
           box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
           display: block;
+          transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 0.4s ease; /* Hover animation */
+      }
+      
+      .cuot-img-responsive:hover {
+          transform: scale(1.015); /* Subtle zoom */
+          box-shadow: 0 12px 24px rgba(0,0,0,0.12); /* Deeper shadow */
       }
       
       /* Header image is the ONLY one allowed to be massive/heroic */
@@ -161,7 +200,13 @@ export default function App() {
           border-radius: 12px; 
           box-shadow: 0 6px 16px rgba(0,0,0,0.12); 
           display: block; 
-          margin-bottom: 2rem; 
+          margin-bottom: 2rem;
+          transition: transform 0.5s ease, box-shadow 0.5s ease;
+      }
+      
+      .cuot-header-image:hover {
+          transform: translateY(-2px); /* Slight lift */
+          box-shadow: 0 15px 30px rgba(0,0,0,0.15);
       }
       
       /* FAQ Section - Improved Design */
@@ -178,7 +223,13 @@ export default function App() {
           padding: 1.5rem;
           box-shadow: 0 2px 5px rgba(0,0,0,0.03);
           border-left: 4px solid #ec7b5d; /* Orange accent */
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
       }
+      .cuot-faq-item:hover {
+          transform: translateX(4px);
+          box-shadow: 0 4px 10px rgba(236, 123, 93, 0.1);
+      }
+      
       .cuot-faq-question { 
           font-family: 'Comfortaa', cursive; 
           color: #ec7b5d; 
@@ -226,11 +277,16 @@ export default function App() {
         padding: 12px 32px; 
         border-radius: 8px; /* Slightly rounded */
         text-decoration: none;
-        transition: all 0.3s ease;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
         box-shadow: 0 4px 10px rgba(236, 123, 93, 0.25);
         text-align: center;
+        border: 2px solid transparent;
       }
-      .cuot-btn:hover { background-color: #d66a4d; transform: translateY(-1px); box-shadow: 0 6px 12px rgba(236, 123, 93, 0.35); }
+      .cuot-btn:hover { 
+        background-color: #d66a4d; 
+        transform: translateY(-2px) scale(1.02); 
+        box-shadow: 0 8px 20px rgba(236, 123, 93, 0.4); 
+      }
       
       /* Table of Contents */
       .cuot-toc {
@@ -241,6 +297,10 @@ export default function App() {
           margin-bottom: 2rem;
           display: inline-block;
           min-width: 250px;
+          transition: box-shadow 0.3s ease;
+      }
+      .cuot-toc:hover {
+          box-shadow: 0 6px 12px rgba(0,0,0,0.05);
       }
       .cuot-toc-title {
           font-family: 'Comfortaa', cursive;
@@ -267,6 +327,7 @@ export default function App() {
       .cuot-toc-list a:hover {
           color: #ec7b5d;
           border-bottom-color: #ec7b5d;
+          padding-left: 4px; /* Small nudge right */
       }
 
       /* Specific Section Styles */
@@ -277,6 +338,11 @@ export default function App() {
         text-align: center;
         border: 2px solid #fff;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        transition: transform 0.3s ease;
+      }
+      .cuot-cta-block:hover {
+         transform: translateY(-2px);
+         box-shadow: 0 8px 20px rgba(0,0,0,0.08);
       }
       
       @media (max-width: 768px) {
@@ -540,6 +606,12 @@ export default function App() {
           html += `<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`;
       }
       
+      // --- NEW: SCHEMA MARKUP (Article / Product / Review) ---
+      // This is the AI generated schema string
+      if (blog.schemaMarkup) {
+          html += `<script type="application/ld+json">${blog.schemaMarkup}</script>`;
+      }
+      
       // --- NEW: BREADCRUMB SCHEMA (SEO OPTIMIZATION) ---
       // Adds invisible structure data for Google
       const breadcrumbSchema = {
@@ -617,10 +689,28 @@ export default function App() {
         headerImageAnalysis,
         productDetails,
         extraInstructions,
-        framework
+        framework,
+        { temperature: aiTemperature, topP: aiTopP } // Pass new AI settings
       );
       
       setGeneratedBlogData(blogData);
+      
+      // Auto Generate Social Logic
+      if (autoGenerateSocial) {
+         setStatus(AppStatus.GENERATING_SOCIAL);
+         setProgressMessage("Blog is klaar! Nu social media posts schrijven...");
+         try {
+             const strategy = await generateSocialMediaStrategy(blogData);
+             setSocialStrategy(strategy);
+         } catch(e) {
+             console.error("Failed auto social generation", e);
+             setSocialStrategy(null);
+         }
+      } else {
+         setSocialStrategy(null);
+      }
+      
+      setActiveTab('editor'); // Always start at editor
       
       // Convert to HTML string for the editor (pass video url)
       const initialHtml = convertToHtmlString(blogData, contentImages, headerImage[0] || null, videoUrl, keywords);
@@ -632,6 +722,24 @@ export default function App() {
       console.error(e);
       setStatus(AppStatus.ERROR);
       setProgressMessage("Er is iets misgegaan. Controleer de console.");
+    }
+  };
+
+  const handleGenerateSocial = async () => {
+    if (!generatedBlogData) return;
+    
+    try {
+      setStatus(AppStatus.GENERATING_SOCIAL);
+      setProgressMessage("Social media posts schrijven voor LinkedIn, IG, FB & Pinterest...");
+      
+      const strategy = await generateSocialMediaStrategy(generatedBlogData);
+      setSocialStrategy(strategy);
+      
+      setStatus(AppStatus.COMPLETED);
+    } catch (e) {
+      console.error(e);
+      setStatus(AppStatus.ERROR);
+      setProgressMessage("Kon social posts niet genereren.");
     }
   };
 
@@ -670,6 +778,20 @@ export default function App() {
       setSuggestions(sugs);
     } catch (e) { console.error(e); } 
     finally { setIsLoadingSuggestions(false); }
+  };
+
+  const handleGetIntentSuggestions = async () => {
+      if (!keywords.trim()) {
+        alert("Vul eerst een onderwerp/zoekwoord in om vragen te genereren.");
+        return;
+      }
+      setIsLoadingIntents(true);
+      setIntentSuggestions([]);
+      try {
+        const intents = await getIntentSuggestions(keywords);
+        setIntentSuggestions(intents);
+      } catch (e) { console.error(e); }
+      finally { setIsLoadingIntents(false); }
   };
 
   const addSuggestion = (suggestion: string) => {
@@ -715,6 +837,47 @@ export default function App() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const renderSocialCard = (platform: string, content: SocialPost | undefined, Icon: any, colorClass: string) => {
+    if (!content) return null;
+
+    return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className={`p-4 border-b border-slate-100 flex items-center justify-between ${colorClass} bg-opacity-10`}>
+             <div className="flex items-center gap-2 font-display font-bold text-slate-700">
+                 <Icon className={colorClass.replace('bg-', 'text-')} size={20} />
+                 <span className="capitalize">{platform}</span>
+             </div>
+             <button 
+                onClick={() => navigator.clipboard.writeText(`${content.caption || ''}\n\n${(content.hashtags || []).join(' ')}`)}
+                className="text-xs bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 px-2 py-1 rounded flex items-center gap-1 transition-colors"
+             >
+                 <Copy size={12} /> Kopieer
+             </button>
+        </div>
+        <div className="p-4 space-y-4">
+            <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Caption</label>
+                <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1 leading-relaxed">{content.caption || 'Geen tekst gegenereerd.'}</p>
+            </div>
+            <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide">Hashtags</label>
+                <div className="flex flex-wrap gap-1 mt-1">
+                    {(content.hashtags || []).map((tag: string, i: number) => (
+                        <span key={i} className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full">#{tag.replace('#','')}</span>
+                    ))}
+                </div>
+            </div>
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 flex gap-2 items-start">
+                 <ImageIcon size={16} className="text-brand-orange mt-0.5" />
+                 <div>
+                    <span className="text-xs font-bold text-brand-grey block">Visuele Suggestie:</span>
+                    <span className="text-xs text-slate-500 italic">{content.visualSuggestion || 'Geen suggestie.'}</span>
+                 </div>
+            </div>
+        </div>
+    </div>
+  )};
 
   return (
     <div className="min-h-screen bg-slate-50 text-brand-grey font-body pb-20">
@@ -794,9 +957,19 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-brand-grey mb-1">
-                  Klantvraag (User Intent)
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-bold text-brand-grey">
+                    Klantvraag (User Intent)
+                  </label>
+                  <button 
+                    onClick={handleGetIntentSuggestions}
+                    disabled={isLoadingIntents}
+                    className="text-xs text-brand-orange hover:text-[#d66a4d] font-bold flex items-center gap-1 bg-brand-light px-2 py-1 rounded-full transition-colors"
+                  >
+                    {isLoadingIntents ? <RefreshCw className="animate-spin" size={10} /> : <Compass size={10} />}
+                    GEO Suggesties
+                  </button>
+                </div>
                 <div className="relative">
                   <Target className="absolute left-3 top-3 text-slate-400" size={16} />
                   <input
@@ -807,6 +980,25 @@ export default function App() {
                     onChange={(e) => setUserIntent(e.target.value)}
                   />
                 </div>
+                
+                {/* Intent Suggestions Panel */}
+                {intentSuggestions.length > 0 && (
+                  <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">SEO & GEO (AI) Vragen:</p>
+                    <div className="flex flex-col gap-2">
+                      {intentSuggestions.map((intent, idx) => (
+                        <div 
+                           key={idx} 
+                           className="flex items-center justify-between bg-white border border-slate-100 p-2 rounded hover:border-brand-orange/30 transition-colors group cursor-pointer" 
+                           onClick={() => { setUserIntent(intent); setIntentSuggestions([]); }}
+                        >
+                          <span className="text-sm text-brand-grey">{intent}</span>
+                          <ArrowRight size={14} className="text-slate-300 group-hover:text-brand-orange" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
                {/* FRAMEWORK SELECTOR */}
@@ -830,6 +1022,61 @@ export default function App() {
                   </select>
                 </div>
               </div>
+
+               {/* AI SETTINGS (New) */}
+               <details className="group border border-slate-200 rounded-lg bg-white overflow-hidden transition-all duration-300">
+                  <summary className="flex items-center justify-between p-3 cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center gap-2 text-sm font-bold text-brand-grey">
+                          <Sliders size={16} className="text-slate-500" />
+                          <span>AI Instellingen (Geavanceerd)</span>
+                      </div>
+                      <ChevronDown size={16} className="text-slate-400 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="p-4 space-y-5 bg-white border-t border-slate-100">
+                      <div>
+                          <div className="flex justify-between items-center mb-2">
+                             <label className="text-xs font-bold text-brand-grey uppercase tracking-wide">
+                                Creativiteit (Temperature)
+                             </label>
+                             <span className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-brand-orange">{aiTemperature}</span>
+                          </div>
+                          <input 
+                             type="range" 
+                             min="0" 
+                             max="1.5" 
+                             step="0.1" 
+                             value={aiTemperature} 
+                             onChange={(e) => setAiTemperature(parseFloat(e.target.value))}
+                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-orange"
+                          />
+                          <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                              <span>Strikt (Feitelijk)</span>
+                              <span>Creatief (Vrij)</span>
+                          </div>
+                      </div>
+
+                      <div>
+                          <div className="flex justify-between items-center mb-2">
+                             <label className="text-xs font-bold text-brand-grey uppercase tracking-wide">
+                                Variatie (Top-P)
+                             </label>
+                             <span className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-brand-orange">{aiTopP}</span>
+                          </div>
+                          <input 
+                             type="range" 
+                             min="0" 
+                             max="1.0" 
+                             step="0.05" 
+                             value={aiTopP} 
+                             onChange={(e) => setAiTopP(parseFloat(e.target.value))}
+                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-orange"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                              Hogere waarde zorgt voor meer diverse woordkeuze.
+                          </p>
+                      </div>
+                  </div>
+               </details>
 
               {/* Sitemap & Product Selector */}
               <div className="relative border-t border-slate-100 pt-4">
@@ -955,11 +1202,22 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Social Option */}
+              <div className="border-t border-slate-100 pt-4 pb-2">
+                 <label className="flex items-center gap-2 cursor-pointer group">
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${autoGenerateSocial ? 'bg-brand-orange border-brand-orange' : 'border-slate-300 bg-white group-hover:border-brand-orange'}`}>
+                        {autoGenerateSocial && <Check size={14} className="text-white" />}
+                    </div>
+                    <input type="checkbox" className="hidden" checked={autoGenerateSocial} onChange={(e) => setAutoGenerateSocial(e.target.checked)} />
+                    <span className="text-sm font-bold text-brand-grey group-hover:text-brand-orange transition-colors">Direct Social Media posts genereren</span>
+                 </label>
+              </div>
+
               <button
                 onClick={handleGenerate}
-                disabled={status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT}
+                disabled={status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL}
                 className={`w-full py-3 px-4 rounded-lg font-display font-bold text-white flex items-center justify-center gap-2 transition-all shadow-md
-                  ${(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT)
+                  ${(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL)
                     ? 'bg-slate-400 cursor-not-allowed'
                     : 'bg-brand-orange hover:bg-[#d66a4d] hover:shadow-lg active:scale-[0.98]'
                   }`}
@@ -967,7 +1225,7 @@ export default function App() {
                 {status === AppStatus.IDLE && (
                   <>Genereer HTML <ArrowRight size={18} /></>
                 )}
-                {(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT) && (
+                {(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL) && (
                    <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"/> {progressMessage}</>
                 )}
                 {status === AppStatus.COMPLETED && (
@@ -988,81 +1246,167 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right Column: Editor */}
+        {/* Right Column: Editor & Social */}
         <div className="lg:col-span-8 flex flex-col gap-4">
           
-          {/* Modification Bar */}
-          {editorContent && (
-             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                 <label className="flex items-center gap-2 text-sm font-bold text-brand-grey mb-2">
-                    <MessageSquarePlus size={18} className="text-brand-orange"/>
-                    Vraag AI om aanpassingen
-                 </label>
-                 <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      value={modificationPrompt}
-                      onChange={(e) => setModificationPrompt(e.target.value)}
-                      placeholder="Bijv: 'Maak de toon enthousiaster' of 'Voeg een alinea toe over duurzaamheid'"
-                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none"
-                      onKeyDown={(e) => e.key === 'Enter' && handleModification()}
-                    />
-                    <button 
-                       onClick={handleModification}
-                       disabled={!modificationPrompt.trim() || status === AppStatus.MODIFYING_TEXT}
-                       className="bg-brand-grey text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                       <Sparkles size={16} /> Update
-                    </button>
-                 </div>
-              </div>
-          )}
+          {/* Tab Navigation - ALWAYS VISIBLE NOW */}
+          <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 mb-2">
+              <button 
+                 onClick={() => setActiveTab('editor')}
+                 className={`flex-1 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${activeTab === 'editor' ? 'bg-brand-orange text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                 <FileText size={16} /> Blog Editor
+              </button>
+              <button 
+                 onClick={() => setActiveTab('social')}
+                 disabled={!generatedBlogData} 
+                 className={`flex-1 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all 
+                    ${activeTab === 'social' ? 'bg-brand-orange text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}
+                    ${!generatedBlogData ? 'opacity-50 cursor-not-allowed' : ''}
+                 `}
+              >
+                 <Share2 size={16} /> Social Media {!generatedBlogData && <span className="text-[10px] bg-slate-100 px-1 rounded ml-1">(Eerst blog genereren)</span>}
+              </button>
+          </div>
 
-          {/* Copy Bar */}
-          {editorContent && (
-              <div className="flex justify-end gap-2">
-                   <button 
-                      onClick={handleDownloadHtml}
-                      className="bg-slate-600 text-white hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
-                      title="Download als .html bestand (Aanbevolen voor grote bestanden)"
-                    >
-                      <Download size={18} />
-                      Download HTML
-                   </button>
-                   <button 
-                      onClick={handleCopyHtml}
-                      className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                      {copiedHtml ? <ClipboardCheck size={18} /> : <Copy size={18} />}
-                      {copiedHtml ? 'Gekopieerd!' : 'Kopieer HTML'}
-                    </button>
-              </div>
-          )}
+          {/* EDITOR VIEW */}
+          <div className={activeTab === 'editor' ? 'block' : 'hidden'}>
+              {/* Modification Bar */}
+              {editorContent && (
+                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+                     <label className="flex items-center gap-2 text-sm font-bold text-brand-grey mb-2">
+                        <MessageSquarePlus size={18} className="text-brand-orange"/>
+                        Vraag AI om aanpassingen
+                     </label>
+                     <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={modificationPrompt}
+                          onChange={(e) => setModificationPrompt(e.target.value)}
+                          placeholder="Bijv: 'Maak de toon enthousiaster' of 'Voeg een alinea toe over duurzaamheid'"
+                          className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none"
+                          onKeyDown={(e) => e.key === 'Enter' && handleModification()}
+                        />
+                        <button 
+                           onClick={handleModification}
+                           disabled={!modificationPrompt.trim() || status === AppStatus.MODIFYING_TEXT}
+                           className="bg-brand-grey text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        >
+                           <Sparkles size={16} /> Update
+                        </button>
+                     </div>
+                  </div>
+              )}
 
-          {/* Editor Area */}
-          <div className="flex-1 min-h-[600px]">
-             {status === AppStatus.MODIFYING_TEXT && (
-                <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/50 backdrop-blur-sm rounded-xl">
-                    <div className="bg-white p-4 rounded-lg shadow-xl border border-slate-200 flex flex-col items-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-4 border-brand-orange border-t-transparent mb-2"/>
-                        <p className="text-brand-grey font-bold font-display">Aanpassingen verwerken...</p>
+              {/* Copy Bar */}
+              {editorContent && (
+                  <div className="flex justify-end gap-2 mb-4">
+                       <button 
+                          onClick={() => setShowSeoPanel(!showSeoPanel)}
+                          className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm border ${showSeoPanel ? 'bg-brand-light text-brand-orange border-brand-orange/30' : 'bg-white text-slate-600 border-slate-200'}`}
+                          title="Toon/Verberg SEO Score"
+                        >
+                          {showSeoPanel ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+                          SEO
+                       </button>
+                       <div className="flex-1"></div>
+                       <button 
+                          onClick={handleDownloadHtml}
+                          className="bg-slate-600 text-white hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                          title="Download als .html bestand (Aanbevolen voor grote bestanden)"
+                        >
+                          <Download size={18} />
+                          Download HTML
+                       </button>
+                       <button 
+                          onClick={handleCopyHtml}
+                          className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                        >
+                          {copiedHtml ? <ClipboardCheck size={18} /> : <Copy size={18} />}
+                          {copiedHtml ? 'Gekopieerd!' : 'Kopieer HTML'}
+                        </button>
+                  </div>
+              )}
+
+              {/* Editor Area with Sidebar */}
+              <div className="flex gap-4 min-h-[600px] relative">
+                 {status === AppStatus.MODIFYING_TEXT && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/50 backdrop-blur-sm rounded-xl">
+                        <div className="bg-white p-4 rounded-lg shadow-xl border border-slate-200 flex flex-col items-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-4 border-brand-orange border-t-transparent mb-2"/>
+                            <p className="text-brand-grey font-bold font-display">Aanpassingen verwerken...</p>
+                        </div>
                     </div>
-                </div>
-             )}
-             
-             {editorContent ? (
-                 <RichTextEditor 
-                    initialContent={editorContent} 
-                    onChange={setEditorContent} 
-                 />
-             ) : (
-                <div className="h-full flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 p-12">
-                   <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                      <FileText size={32} className="text-slate-300" />
+                 )}
+                 
+                 {editorContent ? (
+                    <>
+                      <div className="flex-1">
+                         <RichTextEditor 
+                            initialContent={editorContent} 
+                            onChange={setEditorContent} 
+                         />
+                      </div>
+                      
+                      {/* SEO SIDEBAR */}
+                      {showSeoPanel && seoAnalysis && (
+                          <div className="w-80 shrink-0 hidden xl:block">
+                              <SeoScorecard analysis={seoAnalysis} />
+                          </div>
+                      )}
+                    </>
+                 ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 p-12">
+                       <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                          <FileText size={32} className="text-slate-300" />
+                       </div>
+                       <p className="font-display text-center">Genereer eerst een blog om de editor te openen.</p>
+                    </div>
+                 )}
+              </div>
+              
+              {/* Mobile SEO Panel (Below Editor) */}
+              {editorContent && showSeoPanel && seoAnalysis && (
+                  <div className="xl:hidden mt-4">
+                      <SeoScorecard analysis={seoAnalysis} />
+                  </div>
+              )}
+          </div>
+
+          {/* SOCIAL MEDIA VIEW */}
+          <div className={activeTab === 'social' ? 'block' : 'hidden'}>
+              {status === AppStatus.GENERATING_SOCIAL && (
+                   <div className="flex flex-col items-center justify-center h-64">
+                       <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand-orange border-t-transparent mb-4"/>
+                       <p className="text-brand-grey font-bold">Social Media Strategie uitwerken...</p>
+                       <p className="text-sm text-slate-400">Posts voor LinkedIn, Instagram, Facebook & Pinterest</p>
                    </div>
-                   <p className="font-display text-center">Genereer eerst een blog om de editor te openen.</p>
-                </div>
-             )}
+              )}
+
+              {!socialStrategy && status !== AppStatus.GENERATING_SOCIAL && (
+                  <div className="flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 p-12 h-[500px]">
+                       <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                          <Share2 size={32} className="text-slate-300" />
+                       </div>
+                       <h3 className="text-lg font-bold text-brand-grey mb-2">Genereer Social Media Posts</h3>
+                       <p className="text-center mb-6 max-w-md">Laat de AI automatisch captions, hashtags en visuele suggesties bedenken voor 4 platforms op basis van je blog.</p>
+                       <button 
+                          onClick={handleGenerateSocial}
+                          className="bg-brand-orange hover:bg-[#d66a4d] text-white px-6 py-3 rounded-lg font-bold shadow-md flex items-center gap-2 transition-all"
+                       >
+                          <Sparkles size={18} /> Start Generator
+                       </button>
+                  </div>
+              )}
+
+              {socialStrategy && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {renderSocialCard('LinkedIn', socialStrategy.linkedin, Linkedin, 'bg-blue-600')}
+                      {renderSocialCard('Instagram', socialStrategy.instagram, Instagram, 'bg-pink-600')}
+                      {renderSocialCard('Facebook', socialStrategy.facebook, Facebook, 'bg-blue-800')}
+                      {renderSocialCard('Pinterest', socialStrategy.pinterest, Tag, 'bg-red-600')}
+                  </div>
+              )}
           </div>
 
         </div>
