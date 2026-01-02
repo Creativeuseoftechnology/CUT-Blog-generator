@@ -8,6 +8,7 @@ export interface ImageData {
 }
 
 export type SectionLayout = 'hero' | 'full_width' | 'two_column_image_left' | 'two_column_image_right' | 'cta_block' | 'product_grid';
+export type ContentFramework = 'auto' | 'inspiration' | 'expert' | 'business' | 'comparison' | 'process';
 
 export interface BlogSection {
   layout: SectionLayout;

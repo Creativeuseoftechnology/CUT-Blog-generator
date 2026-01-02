@@ -171,6 +171,24 @@ export const fetchPageContent = async (url: string): Promise<string> => {
     const longDesc = doc.querySelector('#tab-description')?.textContent?.trim() || 
                      doc.querySelector('.woocommerce-Tabs-panel--description')?.textContent?.trim() || "";
 
+    // Extract Reviews (Specific for WooCommerce / standard WP Comments)
+    // We look for .commentlist, #reviews, or .comment-text content
+    let reviews = "";
+    const reviewNodes = doc.querySelectorAll('.commentlist li .description, .comment-content, .review-text');
+    
+    if (reviewNodes.length > 0) {
+        // Take top 3 reviews to avoid token overflow
+        const topReviews = Array.from(reviewNodes).slice(0, 3).map(n => {
+            const text = n.textContent?.trim() || "";
+            // Clean up whitespace
+            return text.replace(/\s+/g, ' ');
+        }).filter(t => t.length > 10); // Filter out empty or too short reviews
+
+        if (topReviews.length > 0) {
+            reviews = topReviews.map(r => `"${r}"`).join("\n- ");
+        }
+    }
+
     // Blog/Page Content (Gutenberg/Classic)
     let generalContent = "";
     if (!shortDesc && !longDesc) {
@@ -190,10 +208,12 @@ export const fetchPageContent = async (url: string): Promise<string> => {
       URL: ${url}
       KORTE OMSCHRIJVING: ${shortDesc}
       DETAILS: ${longDesc}
+      KLANT REVIEWS: 
+      - ${reviews || "Geen reviews gevonden op deze pagina."}
       INHOUD: ${generalContent}
     `;
 
-    return fullText.replace(/\s+/g, ' ').substring(0, 3000); 
+    return fullText.replace(/\s+/g, ' ').substring(0, 4000); // Increased limit slightly for reviews
 
   } catch (e) {
     console.warn("Could not fetch page content", url);

@@ -3,13 +3,14 @@ import { ImageUploader } from './components/ImageUploader';
 import { RichTextEditor } from './components/RichTextEditor';
 import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions } from './services/geminiService';
 import { fetchSiteProducts, fetchPageContent } from './utils/sitemapService';
-import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry } from './types';
-import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon } from 'lucide-react';
+import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework } from './types';
+import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate } from 'lucide-react';
 
 export default function App() {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [keywords, setKeywords] = useState('');
   const [userIntent, setUserIntent] = useState('');
+  const [framework, setFramework] = useState<ContentFramework>('auto');
   const [extraInstructions, setExtraInstructions] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   
@@ -615,7 +616,8 @@ export default function App() {
         analyzedImageContexts,
         headerImageAnalysis,
         productDetails,
-        extraInstructions
+        extraInstructions,
+        framework
       );
       
       setGeneratedBlogData(blogData);
@@ -804,6 +806,28 @@ export default function App() {
                     value={userIntent}
                     onChange={(e) => setUserIntent(e.target.value)}
                   />
+                </div>
+              </div>
+
+               {/* FRAMEWORK SELECTOR */}
+               <div>
+                <label className="block text-sm font-bold text-brand-grey mb-1">
+                  Blog Strategie / Framework
+                </label>
+                <div className="relative">
+                  <LayoutTemplate className="absolute left-3 top-3 text-slate-400" size={16} />
+                  <select 
+                    value={framework}
+                    onChange={(e) => setFramework(e.target.value as ContentFramework)}
+                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none transition-all appearance-none bg-white text-sm cursor-pointer"
+                  >
+                      <option value="auto">🤖 AI kiest automatisch (Aanbevolen)</option>
+                      <option value="inspiration">✨ Inspiratie Gids (Lijstjes & Ideeën)</option>
+                      <option value="expert">🛠️ Techniek & Expert (Deep Dive)</option>
+                      <option value="business">🏢 Zakelijke Markt (B2B/Relatiegeschenk)</option>
+                      <option value="comparison">⚖️ Vergelijking / Keuzehulp</option>
+                      <option value="process">⚙️ Achter de Schermen (Productie)</option>
+                  </select>
                 </div>
               </div>
 

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry } from "../types";
+import { GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework } from "../types";
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -11,11 +11,14 @@ KNOWLEDGE BASE - SITE STRUCTUUR:
 `;
 
 const BRAND_VOICE = `
-MERK IDENTITEIT (Creative Use of Technology):
+MERK IDENTITEIT (Creative Use of Technology - CUoT):
+- Rol: Senior Content Strateeg.
 - Kleuren: Oranje (#ec7b5d), Grijs (#575756).
 - Sfeer: Innovatief, warm, persoonlijk, technisch vakmanschap maar toegankelijk.
 - Doelgroep: Bedrijven (B2B) op zoek naar unieke relatiegeschenken en consumenten (B2C) voor custom interieur.
 - Toon: Professionele marketeer. Overtuigend, SEO-sterk, activerend. Gebruik 'je' en 'jij'.
+- Autoriteit: Wij hebben 2000+ reviews met een score van 96% (9.6). Gebruik dit als social proof.
+- Locatie: Benadruk "Nederlands vakmanschap" en productie in "Breda".
 `;
 
 const BLOG_SCHEMA = {
@@ -27,9 +30,9 @@ const BLOG_SCHEMA = {
     },
     metaDescription: { 
       type: Type.STRING,
-      description: "Meta omschrijving (max 160 karakters)."
+      description: "Meta omschrijving (max 155 karakters, CTR focus)."
     },
-    geoStrategy: { type: Type.STRING },
+    geoStrategy: { type: Type.STRING, description: "Korte uitleg over hoe Breda/Lokaal is verwerkt." },
     headerImageAlt: { type: Type.STRING, description: "SEO ALT tekst." },
     keywordsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
     internalLinksUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -89,7 +92,7 @@ export const analyzeImageContent = async (base64: string, mimeType: string): Pro
       contents: {
         parts: [
           { inlineData: { data: base64, mimeType: mimeType } },
-          { text: "Beschrijf deze afbeelding voor Creative Use of Technology. Focus op materialen, kleuren en techniek." },
+          { text: "Beschrijf deze afbeelding voor Creative Use of Technology. Focus op materialen (hout, acrylaat), kleuren en lastechniek." },
         ],
       },
     });
@@ -107,7 +110,8 @@ export const generateBlogContent = async (
   imageContexts: string[], // Content images
   headerImageContext: string, // Header image specific context
   productDetails: string[], // Scraped content
-  extraInstructions: string
+  extraInstructions: string,
+  framework: ContentFramework
 ): Promise<GeneratedBlog> => {
   
   const productContextList = focusedProducts.map(p => `- LINK TARGET: "${p.name}" -> URL: "${p.url}"`).join('\n');
@@ -118,54 +122,84 @@ export const generateBlogContent = async (
 
   const productInstruction = focusedProducts.length > 0
     ? `LINKING RULES (STRICT):
-       1. ONLY link to the URLs listed below in the "AVAILABLE LINKS" section.
-       2. Do NOT invent new URLs.
+       1. Verwerk interne links naar onderstaande producten OP EEN NATUURLIJKE MANIER in de tekst.
+       2. Gebruik exact deze URL's. Verzin geen URL's.
        
-       AVAILABLE LINKS:
+       BESCHIKBARE LINKS:
        ${productContextList}`
-    : `Use sitemap structure for general linking.`;
+    : `Gebruik sitemap structuur voor algemene links indien relevant.`;
+
+  // Define logic for framework selection
+  let frameworkInstruction = "";
+  if (framework === 'auto') {
+      frameworkInstruction = `
+      Kies dynamisch één van de volgende frameworks en pas de JSON 'sections' hierop aan:
+      A. 'Inspiration Guide' (Brede termen): Intro -> 5-7 ideeën -> Waarom personalisatie werkt -> Call to Action.
+      B. 'Service Expert' (Specifieke diensten): Intro -> De techniek achter het graveren/snijden -> Materiaalkeuze -> FAQ.
+      C. 'Business Gift' (Zakelijk): Focus op duurzaamheid, logo-personalisatie en grote aantallen.
+      D. 'Process Behind' (Autoriteit/Techniek): Leg de techniek uit. Benadruk lokaal in Breda.
+      `;
+  } else {
+      // Force specific framework
+      const frameworkMapping: Record<string, string> = {
+          'inspiration': "'Inspiration Guide': Structureer als Intro -> 5-7 unieke ideeën (als lijst/kopjes) -> Waarom personalisatie werkt -> Call to Action.",
+          'expert': "'Service Expert': Structureer als Intro -> De techniek achter de dienst -> Materiaalkeuze (hout/plexiglas) -> Technische FAQ.",
+          'business': "'Business Gift': Focus op B2B. Structuur: Intro -> Voordelen van unieke geschenken -> Duurzaamheid & Impact -> Logo personalisatie -> Aanvraag info.",
+          'comparison': "'Product Comparison': Vergelijk materialen of opties. Gebruik een structuur die de lezer helpt kiezen (bijv. Eiken vs Walnoot).",
+          'process': "'Behind the Scenes': Leg stap voor stap uit hoe het gemaakt wordt in Breda. Focus op vakmanschap en machines."
+      };
+      frameworkInstruction = `FORCEER FRAMEWORK: ${frameworkMapping[framework] || "Volg de gebruikersinstructie."}`;
+  }
 
   const prompt = `
-    ROLE: Senior Content Marketeer for 'Creative Use of Technology'.
-    
+    ROL: Je bent de Senior Content Strateeg van Creative Use of Technology (CUT). 
+    DOEL: Genereer een blog die informatief, technisch geoptimaliseerd (SEO & Geo) en visueel aantrekkelijk is.
+
     ${BRAND_VOICE}
     ${SITEMAP_CONTEXT}
     
-    TASK: Write a visually engaging, SEO-optimized blog post in valid JSON format.
+    === STRATEGISCHE INZICHTEN (STRIKTE RICHTLIJNEN) ===
+    1. INTENT MATCH: Als intentie = 'kopen', focus op USP's. Als intentie = 'inspiratie', focus op ideeën. Focus op AMBACHT en PROCES (hoe we het doen).
+    2. SEARCH GAPS: Schrijf inspirerend voor de oriëntatiefase (bijv. "uniek cadeau", "duurzaam relatiegeschenk").
+    3. AUTORITEIT: Gebruik de zin: "Al duizenden klanten gingen je voor met een gemiddelde score van 9.6". Verwerk dit subtiel.
+    4. SEO HYGIËNE: Max 1 H1 (is de titel). Gebruik H2/H3. Meta desc max 155 tekens (CTR focus).
+    5. GEO-OPTIMALISATIE: Vermeld expliciet "Geproduceerd in Breda" of "Nederlands vakmanschap" in de tekst.
     
+    === SOCIAL PROOF (REVIEWS) ===
+    In de INPUT DATA staan mogelijk 'KLANT REVIEWS'. 
+    - Gebruik deze letterlijke quotes ("...") in de tekst om claims te onderbouwen.
+    - Bij Framework 'Business' of 'Comparison': Gebruik reviews als bewijs van kwaliteit.
+    - Bij Framework 'Inspiration': Gebruik reviews als voorbeeld van blije ontvangers.
+    - VERZIN GEEN REVIEWS. Gebruik alleen wat er staat of gebruik de algemene 9.6 score.
+
+    === FRAMEWORK SELECTIE ===
+    ${frameworkInstruction}
+
     === INPUT DATA ===
-    TOPIC/KEYWORDS: ${keywords}
-    USER INTENT: ${userIntent}
-    USER INSTRUCTIONS: "${extraInstructions}"
+    ONDERWERP/KEYWORDS: ${keywords}
+    KLANTVRAAG (USER INTENT): ${userIntent}
+    EXTRA INSTRUCTIES: "${extraInstructions}"
     
     HEADER IMAGE CONTEXT: ${headerImageContext}
     CONTENT IMAGES CONTEXT: 
-    ${imageContexts.map((ctx, i) => `Image ${i}: ${ctx}`).join('\n')}
+    ${imageContexts.map((ctx, i) => `Afbeelding ${i}: ${ctx}`).join('\n')}
     
-    === PRODUCT CONTEXT (SOURCE MATERIAL) ===
+    === PRODUCT CONTEXT (BRONMATERIAAL MET REVIEWS) ===
     ${detailedProductContext}
     
-    === STRATEGY INSTRUCTIONS ===
+    === STRATEGIE INSTRUCTIES ===
     ${productInstruction}
 
     === WRITING GUIDELINES ===
-    1. **Headings:** Use Sentence case. Include keywords naturally. No repetition in H1.
-    2. **Content:** Write converting copy. If a section has an image, reference the image content in the text.
-    3. **Geo-Targeting:** Subtly mention 'Dutch craftsmanship' or 'Made in Breda' where appropriate.
-    4. **Formatting:** NO markdown bolding (**) in the JSON strings.
-    5. **JSON SYNTAX (CRITICAL):** 
-       - Do NOT use newlines (\n) or carriage returns (\r) inside JSON string values. 
-       - Keep "question" and "answer" fields on a single line.
-       - Do not add trailing commas.
-    6. **CTA Buttons:** Use descriptive anchor text (e.g. "Ontwerp jouw lamp" instead of "Klik hier").
+    1. **Koppen:** Sentence case. Verwerk zoekwoorden natuurlijk.
+    2. **Content:** Schrijf converterende tekst. Als een sectie een afbeelding heeft (zie context), refereer hiernaar.
+    3. **Opmaak:** GEEN markdown bolding (**) in de JSON strings.
+    4. **JSON SYNTAX (CRITICAAL):** 
+       - GEEN newlines (\n) in JSON strings.
+       - Houd 'question' en 'answer' velden op 1 regel.
+    5. **CTA Knoppen:** Gebruik beschrijvende tekst (bijv. "Ontwerp jouw lamp") i.p.v. "Klik hier".
 
-    === LAYOUT TYPES ===
-    - hero: Intro section.
-    - two_column_image_left/right: Use when content images are available.
-    - full_width: Text only.
-    - cta_block: Call to action.
-
-    OUTPUT: JSON ONLY. Adhere to the schema.
+    OUTPUT: JSON ONLY. Volg exact het schema.
   `;
 
   try {
@@ -175,8 +209,8 @@ export const generateBlogContent = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: BLOG_SCHEMA,
-        temperature: 0.2,
-        topK: 40, // Limits vocabulary to preventing "looping" on low probability tokens
+        temperature: 0.3, // Iets creatiever voor inspiratie
+        topK: 40,
         maxOutputTokens: 8192
       }
     });
@@ -186,13 +220,13 @@ export const generateBlogContent = async (
     
     try {
         const parsed = JSON.parse(cleanJson(text)) as GeneratedBlog;
-        // Robust Safety Checks for Arrays
+        
+        // Safety Checks
         if (!parsed.sections) parsed.sections = [];
         if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
         if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
         if (!parsed.faq) parsed.faq = [];
         
-        // Additional safety: Ensure section content is string
         parsed.sections.forEach(s => {
             if (!s.content) s.content = "";
             if (!s.heading) s.heading = "";
@@ -214,16 +248,18 @@ export const modifyBlogContent = async (
   modificationRequest: string
 ): Promise<GeneratedBlog> => {
   const prompt = `
-    Modify the following blog post based on the instruction. Keep exact JSON structure.
+    Je bent de Senior Content Strateeg van Creative Use of Technology.
+    Pas de volgende blog post aan op basis van de instructie. Behoud de exacte JSON structuur.
     
-    CURRENT BLOG: ${JSON.stringify(currentBlog)}
-    INSTRUCTION: "${modificationRequest}"
+    HUIDIGE BLOG: ${JSON.stringify(currentBlog)}
+    INSTRUCTIE: "${modificationRequest}"
     
-    RULES: 
-    - Keep 'Sentence case' in titles.
-    - NO markdown bolding (**).
-    - NO newlines inside JSON strings.
-    - Ensure valid JSON output.
+    REGELS: 
+    - Behoud 'Sentence case' in titels.
+    - GEEN markdown bolding (**).
+    - GEEN newlines in JSON strings.
+    - Zorg voor valide JSON output.
+    - Behoud de Breda/NL Vakmanschap tone-of-voice.
   `;
 
   try {
@@ -242,7 +278,6 @@ export const modifyBlogContent = async (
     
     const parsed = JSON.parse(cleanJson(text)) as GeneratedBlog;
     
-    // Robust Safety Checks for Arrays
     if (!parsed.sections) parsed.sections = [];
     if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
     if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
@@ -256,23 +291,23 @@ export const modifyBlogContent = async (
 };
 
 export const getKeywordSuggestions = async (currentTopic: string): Promise<KeywordSuggestion[]> => {
-    // Check if the user has already entered keywords (comma separated)
     const existingKeywords = currentTopic.split(',').map(k => k.trim()).filter(k => k.length > 0);
     const topicContext = existingKeywords.length > 0 ? existingKeywords[0] : "duurzaam design";
     
     const exclusionPrompt = existingKeywords.length > 0 
-      ? `Avoid these used keywords: ${existingKeywords.join(', ')}.` 
+      ? `Vermijd deze reeds gebruikte termen: ${existingKeywords.join(', ')}.` 
       : "";
 
     const prompt = `
-      Role: SEO Specialist.
-      Task: Provide 5 NEW, relevant long-tail keyword suggestions for: "${topicContext}".
+      Rol: SEO Specialist Creative Use of Technology.
+      Taak: Geef 5 NIEUWE, relevante long-tail zoekwoord suggesties voor: "${topicContext}".
+      Focus: Relatiegeschenken, personalisatie, lasersnijden, interieur.
       ${exclusionPrompt}
       
       Criteria:
-      1. High search volume, reasonable competition.
-      2. Commercial or Informational intent.
-      3. Unique suggestions.
+      1. Hoog volume, haalbare competitie.
+      2. Commerciële of Informationele intentie.
+      3. Unieke suggesties.
       
       Output JSON array: keyword, volume, competition, rationale.
     `;
