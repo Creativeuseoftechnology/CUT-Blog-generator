@@ -18,8 +18,9 @@ export const ImageUploader: React.FC<Props> = ({ images, onImagesChange, label =
       img.src = URL.createObjectURL(file);
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        // Resize logic: Max width 800px (Optimized for Blog Context & Copy-Paste limits)
-        const MAX_WIDTH = 800;
+        // Resize logic: Max width 1200px (SEO Standard for Hero Images)
+        // We compress to WebP to offset the size increase of base64 encoding.
+        const MAX_WIDTH = 1200;
         let width = img.width;
         let height = img.height;
 
@@ -37,7 +38,7 @@ export const ImageUploader: React.FC<Props> = ({ images, onImagesChange, label =
         }
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Convert to WebP with 0.6 quality (High compression for base64 safety)
+        // Convert to WebP with 0.7 quality (Balance between Hero quality and file size)
         canvas.toBlob((blob) => {
           if (blob) {
             const reader = new FileReader();
@@ -49,7 +50,7 @@ export const ImageUploader: React.FC<Props> = ({ images, onImagesChange, label =
           } else {
             reject(new Error('WebP conversion failed'));
           }
-        }, 'image/webp', 0.6);
+        }, 'image/webp', 0.7);
       };
       img.onerror = (e) => reject(e);
     });
@@ -71,7 +72,7 @@ export const ImageUploader: React.FC<Props> = ({ images, onImagesChange, label =
           newImages.push({
             file, // Keep original file ref if needed, but we use blob mostly
             previewUrl: URL.createObjectURL(blob),
-            base64: base64, // Optimized base64 for Gemini
+            base64: base64, // Optimized base64 for Gemini & HTML Embedding
             mimeType: 'image/webp',
             optimizedBlob: blob
           });
@@ -111,7 +112,7 @@ export const ImageUploader: React.FC<Props> = ({ images, onImagesChange, label =
   return (
     <div className="w-full">
       <label className="block text-sm font-medium text-slate-700 mb-2">
-        {label} <span className="text-slate-400 font-normal">(automatisch geoptimaliseerd)</span>
+        {label} <span className="text-slate-400 font-normal">(automatisch geoptimaliseerd naar WebP 1200px)</span>
       </label>
       
       <div 

@@ -14,6 +14,7 @@ export type ContentFramework = 'auto' | 'inspiration' | 'expert' | 'business' | 
 export interface BlogSection {
   layout: SectionLayout;
   heading: string;
+  snippet?: string; // New: Zero-Click direct answer
   content: string;
   ctaText?: string;
   ctaUrl?: string;
@@ -40,9 +41,11 @@ export interface GeneratedBlog {
   geoStrategy: string;
   headerImageAlt: string; // Specific ALT for the hero image
   imageAltMap: Record<string, string>;
+  canonicalUrl?: string; // New: Distribution safety
   
   // New fields for Creative Use of Technology specific features
   internalLinksUsed: string[]; // List of links inserted
+  semanticEntities?: { concept: string; definition: string }[]; // New: Knowledge Graph Entities
   faq?: { question: string; answer: string; }[]; // Optional FAQ section
   schemaMarkup?: string; // JSON-LD string provided by AI
 }

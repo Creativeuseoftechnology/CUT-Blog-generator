@@ -32,6 +32,10 @@ const BLOG_SCHEMA = {
       type: Type.STRING,
       description: "Meta omschrijving (max 155 karakters, CTR focus)."
     },
+    canonicalUrl: {
+      type: Type.STRING,
+      description: "De volledige, absolute URL waar deze blog komt te staan. Gebruik format: 'https://creativeuseoftechnology.com/blog/[slug-van-titel]'"
+    },
     geoStrategy: { type: Type.STRING, description: "Korte uitleg over hoe Breda/Lokaal is verwerkt." },
     headerImageAlt: { type: Type.STRING, description: "SEO ALT tekst." },
     keywordsUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -40,6 +44,17 @@ const BLOG_SCHEMA = {
       type: Type.STRING, 
       description: "Een valid JSON-LD string. BELANGRIJK: Bij 'AggregateRating' MOET 'bestRating': '10' toegevoegd worden omdat de score > 5 is." 
     },
+    semanticEntities: {
+      type: Type.ARRAY,
+      description: "Lijst van 3-5 technische kernbegrippen voor Knowledge Graph mapping.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          concept: { type: Type.STRING, description: "Het begrip (bijv. 'Vectorbestand')." },
+          definition: { type: Type.STRING, description: "De wikipedia-style definitie (1 zin)." }
+        }
+      }
+    },
     faq: {
       type: Type.ARRAY,
       items: {
@@ -47,11 +62,11 @@ const BLOG_SCHEMA = {
         properties: {
           question: { 
             type: Type.STRING, 
-            description: "De vraag. KORT (1 zin). GEEN enters/newlines." 
+            description: "De vraag. KORT en DIRECT (bijv: 'Is acrylaat duurzaam?')." 
           },
           answer: { 
             type: Type.STRING, 
-            description: "Het antwoord. Beknopt. GEEN enters/newlines." 
+            description: "Het antwoord. Geoptimaliseerd voor VOICE SEARCH: Direct, beknopt (max 2 zinnen) en feitelijk. GEEN enters/newlines." 
           }
         }
       }
@@ -77,6 +92,10 @@ const BLOG_SCHEMA = {
             description: "Kies 'feature_highlight' voor technische specs/materials. Kies 'quote_block' voor reviews/quotes."
           },
           heading: { type: Type.STRING, description: "H2/H3 Titel: Bondig (max 8 woorden), SEO-rijk, Sentence case." },
+          snippet: {
+            type: Type.STRING,
+            description: "ZERO-CLICK HEADER: Een dikgedrukte samenvatting (max 20 woorden) die DIRECT het antwoord geeft op de kop. Dit is voor Featured Snippets."
+          },
           content: { type: Type.STRING },
           ctaText: { type: Type.STRING, description: "Actiegericht en specifiek voor de URL (bijv: 'Bekijk [ProductNaam]'). Geen 'Klik hier'." },
           ctaUrl: { type: Type.STRING }
@@ -138,17 +157,17 @@ export const generateBlogContent = async (
   if (framework === 'auto') {
       frameworkInstruction = `
       Kies dynamisch één van de volgende frameworks en pas de JSON 'sections' hierop aan:
-      A. 'Inspiration Guide' (Brede termen): Intro -> 5-7 ideeën -> Waarom personalisatie werkt -> Call to Action.
-      B. 'Service Expert' (Specifieke diensten): Intro -> De techniek achter het graveren/snijden -> Materiaalkeuze -> FAQ.
+      A. 'Inspiration Guide' (Brede termen): Intro (Lead-in Summary) -> 5-7 ideeën -> Waarom personalisatie werkt -> Call to Action.
+      B. 'Service Expert' (Specifieke diensten): Intro (Lead-in Summary) -> De techniek achter het graveren/snijden -> Materiaalkeuze -> FAQ.
       C. 'Business Gift' (Zakelijk): Focus op duurzaamheid, logo-personalisatie en grote aantallen.
       D. 'Process Behind' (Autoriteit/Techniek): Leg de techniek uit. Benadruk lokaal in Breda.
       `;
   } else {
       // Force specific framework
       const frameworkMapping: Record<string, string> = {
-          'inspiration': "'Inspiration Guide': Structureer als Intro -> 5-7 unieke ideeën (als lijst/kopjes) -> Waarom personalisatie werkt -> Call to Action.",
-          'expert': "'Service Expert': Structureer als Intro -> De techniek achter de dienst -> Materiaalkeuze (hout/plexiglas) -> Technische FAQ.",
-          'business': "'Business Gift': Focus op B2B. Structuur: Intro -> Voordelen van unieke geschenken -> Duurzaamheid & Impact -> Logo personalisatie -> Aanvraag info.",
+          'inspiration': "'Inspiration Guide': Structureer als Intro (Lead-in Summary) -> 5-7 unieke ideeën (als lijst/kopjes) -> Waarom personalisatie werkt -> Call to Action.",
+          'expert': "'Service Expert': Structureer als Intro (Lead-in Summary) -> De techniek achter de dienst -> Materiaalkeuze (hout/plexiglas) -> Technische FAQ.",
+          'business': "'Business Gift': Focus op B2B. Structuur: Intro (Lead-in Summary) -> Voordelen van unieke geschenken -> Duurzaamheid & Impact -> Logo personalisatie -> Aanvraag info.",
           'comparison': "'Product Comparison': Vergelijk materialen of opties. Gebruik een structuur die de lezer helpt kiezen (bijv. Eiken vs Walnoot).",
           'process': "'Behind the Scenes': Leg stap voor stap uit hoe het gemaakt wordt in Breda. Focus op vakmanschap en machines."
       };
@@ -157,45 +176,72 @@ export const generateBlogContent = async (
 
   const prompt = `
     ROL: Je bent de Senior Content Strateeg van Creative Use of Technology (CUT). 
-    DOEL: Genereer een blog die informatief, technisch geoptimaliseerd (SEO & Geo) en visueel aantrekkelijk is.
+    DOEL: Genereer een blog die informatief, technisch geoptimaliseerd (GEO) en visueel aantrekkelijk is.
 
     ${BRAND_VOICE}
+    
+    === GEO (GENERATIVE ENGINE OPTIMIZATION) STRATEGIE (CRUCIAAL) ===
+    
+    1. **ENTITY DEFINITION (LEAD-IN SUMMARY):**
+       Identificeer de belangrijkste 'entiteit' van de blog (het onderwerp). 
+       Definieer deze entiteit DIRECT in de eerste alinea (Intro) op een manier die een kennismodel (LLM) direct kan categoriseren.
+       - Structuur: "[Onderwerp] is een [Categorie] die [Belangrijkste Functie/Kenmerk]."
+       - Dit moet dienen als de 'Lead-in Summary' snippet voor Google/AI.
+
+    2. **DATA-FIRST WRITING (Bewijs):**
+       Vermijd lege bijvoeglijke naamwoorden zoals "prachtig", "uniek" of "leuk" als ze niet worden ondersteund door bewijs.
+       Vervang ze door feitelijke eigenschappen uit de INPUT DATA (afmetingen, materialen, certificering).
+       - FOUT: "Een prachtige houten kaart."
+       - GOED: "Een houten kaart van 6mm dik FSC-gecertificeerd eikenfineer."
+
+    3. **SEMANTIC TRIPLET STRUCTURE & LINKING (RELATIES):**
+       Bouw koppen en kernzinnen op rondom relaties: [Onderwerp] -> [Eigenschap] -> [Voordeel].
+       - Voorbeeld: "Eikenhout (Entiteit) is van nature hard (Eigenschap), wat zorgt voor een krasvast oppervlak (Voordeel)."
+       - **KOPPELING:** Zorg dat paragrafen logisch in elkaar overlopen door concepten expliciet aan elkaar te linken. Als je het over "Duurzaamheid" hebt, verwijs dan terug naar het "Materiaal" dat eerder is genoemd.
+
+    4. **CITATION-READY STYLE (Toon):**
+       Schrijf in een objectieve, deskundige toon.
+       - VERBODEN CLICHÉS: "In de wereld van vandaag", "Laten we dieper duiken", "Conclusie", "Ontdek de magie".
+       - DOEL: Schrijf alsof je de brontekst bent voor een Wikipedia-artikel.
+
+    5. **ZERO-CLICK HEADER STRATEGIE:**
+       Voor ELKE H2 kop, genereer je een 'snippet'. Dit is één krachtige, dikgedrukte zin die DIRECT onder de kop komt te staan.
+       Deze zin beantwoordt de vraag van de kop direct.
+       - Kop: "Is lasergraveren duurzaam?"
+       - Snippet: "Ja, lasergraveren is een duurzaam proces omdat er geen inkt of chemicaliën worden gebruikt en het afval minimaal is."
+
+    6. **ENTITY MAPPING & CANONICAL:**
+       - Identificeer de 3-5 belangrijkste technische entiteiten in de tekst.
+       - Genereer de **'canonicalUrl'**. Dit is cruciaal voor distributie. Maak een slug van de titel en plak deze achter 'https://creativeuseoftechnology.com/blog/'.
+
+    === INTENT-FIRST & VALIDATIE ===
+    - **H1:** Het focus-keyword MOET in de titel staan.
+    - **Header 1:** De allereerste sectie moet het zoekwoord in de eerste 100 woorden bevatten (Entity Definition).
+    - **Actie-Werkwoorden:** Als de intentie 'graveren' of 'maken' is, gebruik dan koppen die dit proces uitleggen (bijv. "Hoe het laserproces werkt").
+    - **FAQ:** Voeg onderaan een 'Q&A Blok' toe met de 3 meest gestelde vragen, geformuleerd voor 'People Also Ask'.
+
     ${SITEMAP_CONTEXT}
     
     === LINKING STRATEGIE (CRUCIAAL & STRIKT) ===
     1. **ALLEEN GESELECTEERDE LINKS:** Gebruik UITSLUITEND de URL's die hieronder staan bij 'BESCHIKBARE LINKS'.
     2. **GEEN FANTASIE:** Verzin NOOIT zelf een URL. Als er geen passende productlink is in de lijst, plaats dan GEEN link.
     3. **CTA MATCH:** De tekst op de knop (ctaText) moet direct slaan op de pagina waarheen gelinkt wordt.
-       - FOUT: Link naar '/houten-wereldkaart' -> Tekst: 'Neem contact op'.
-       - GOED: Link naar '/houten-wereldkaart' -> Tekst: 'Ontdek houten wereldkaarten'.
-    4. **NATUURLIJK:** Verwerk interne links in de lopende tekst waar mogelijk, maar gebruik CTA blokken voor de belangrijkste conversiepunten.
+    4. **NATUURLIJK:** Verwerk interne links in de lopende tekst waar mogelijk.
 
     BESCHIKBARE LINKS (Kies hieruit):
     ${productContextList}
-
-    === SEO TITEL INSTRUCTIES (H1, H2, H3) ===
-    - **H1:** Moet het hoofdzoekwoord bevatten, max 60 tekens, en uitnodigen tot klikken.
-    - **H2/H3:** Maak ze BONDIG (max 8-10 woorden). Geen lange zinnen.
-    - **OPBOUW:** Gebruik 'Sentence case' (Alleen eerste letter hoofdletter, tenzij eigennaam).
-    - **INHOUD:** Titels moeten informatief zijn ("Voordelen van acrylaat") in plaats van vaag ("Meer informatie").
 
     === DIEPGAANDE PRODUCT INTEGRATIE ===
     De gebruiker heeft productinformatie aangeleverd. GEBRUIK DEZE INFORMATIE ACTIEF!
     - Benoem specifieke materialen (bijv. FSC hout, gerecycled acrylaat) die in de input staan.
     - Benoem specifieke afmetingen of technische details als ze relevant zijn.
     - Haal unieke eigenschappen uit de "KORTE OMSCHRIJVING" en "DETAILS" van de input.
-    - Vertel *waarom* dit product bijzonder is op basis van de input data.
 
     === VISUELE LAYOUT & CREATIVITEIT ===
     Maak gebruik van de beschikbare layouts om "Walls of text" te voorkomen:
     - Gebruik 'feature_highlight' voor het uitlichten van materialen, specificaties of unieke voordelen.
     - Gebruik 'quote_block' voor het tonen van een klantreview (uit de input data) of een krachtig statement.
     - Wissel af: Hero -> Text -> Highlight -> Image Left -> Quote -> Image Right -> CTA.
-
-    === SECTIE SOCIAL PROOF (VERPLICHT) ===
-    - Maak EEN SPECIFIEKE SECTIE (H2) genaamd "Wat anderen vinden" (of variatie).
-    - Gebruik letterlijke quotes ("...") uit de INPUT DATA om kwaliteit te bewijzen.
-    - Als er geen specifieke reviews zijn, gebruik de algemene bedrijfs-score van 9.6/10.
 
     === SCHEMA MARKUP (JSON-LD) ===
     Genereer in het veld 'schemaMarkup' een complete JSON-LD string.
@@ -205,7 +251,6 @@ export const generateBlogContent = async (
     3. VOOR REVIEW SCORES (AggregateRating):
        - Als je 9.6 gebruikt, MOET je "bestRating": "10" toevoegen.
        - Structuur: {"@type": "AggregateRating", "ratingValue": "9.6", "reviewCount": "2150", "bestRating": "10", "worstRating": "1"}
-    Zorg dat dit VALID JSON is (geen script tags).
 
     === FRAMEWORK SELECTIE ===
     ${frameworkInstruction}
@@ -257,10 +302,17 @@ export const generateBlogContent = async (
         if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
         if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
         if (!parsed.faq) parsed.faq = [];
+        if (!parsed.semanticEntities) parsed.semanticEntities = [];
+        if (!parsed.canonicalUrl) {
+            // Fallback generation if AI misses it
+            const slug = parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+            parsed.canonicalUrl = `https://creativeuseoftechnology.com/blog/${slug}`;
+        }
         
         parsed.sections.forEach(s => {
             if (!s.content) s.content = "";
             if (!s.heading) s.heading = "";
+            if (!s.snippet) s.snippet = "";
         });
         
         return parsed;
@@ -317,6 +369,8 @@ export const modifyBlogContent = async (
     if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
     if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
     if (!parsed.faq) parsed.faq = [];
+    if (!parsed.semanticEntities) parsed.semanticEntities = [];
+    if (!parsed.canonicalUrl) parsed.canonicalUrl = currentBlog.canonicalUrl;
 
     return parsed;
   } catch (error) {

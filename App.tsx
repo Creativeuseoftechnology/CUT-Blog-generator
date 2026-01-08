@@ -40,6 +40,39 @@ const BLOG_CSS = `
       #cuot-blog-wrapper ul { margin-bottom: 1em; padding-left: 1.5em; list-style-type: disc; }
       #cuot-blog-wrapper li { margin-bottom: 0.5em; }
 
+      /* Zero-Click Snippet (Featured Snippet Bait) */
+      .cuot-snippet {
+          background-color: #fdf6f4;
+          border-left: 5px solid #ec7b5d;
+          padding: 1rem 1.5rem;
+          margin-bottom: 1.5rem;
+          font-weight: 600;
+          color: #575756;
+          border-radius: 0 8px 8px 0;
+      }
+
+      /* Semantic Entity List (Knowledge Graph) */
+      .cuot-entity-list dl {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 1rem 2rem;
+          background: #fff;
+          border: 1px solid #eee;
+          padding: 2rem;
+          border-radius: 12px;
+          margin: 2rem 0;
+      }
+      .cuot-entity-list dt {
+          font-family: 'Comfortaa', cursive;
+          font-weight: 700;
+          color: #ec7b5d;
+      }
+      .cuot-entity-list dd {
+          margin: 0;
+          color: #666;
+          font-size: 0.95rem;
+      }
+
       /* Layout Utilities */
       .cuot-section { margin-bottom: 2.5rem; clear: both; }
       .cuot-grid { display: flex; flex-wrap: wrap; gap: 3rem; align-items: center; }
@@ -80,35 +113,68 @@ const BLOG_CSS = `
           box-shadow: 0 15px 30px rgba(0,0,0,0.15);
       }
       
-      /* FAQ Section - Improved Design */
+      /* FAQ Section - Improved Design for SEO & GEO (Details/Summary) */
       .cuot-faq-container { 
           background: #fdf6f4; /* Brand Light */
           border-radius: 16px; 
           padding: 3rem; 
           margin-top: 4rem; 
       }
-      .cuot-faq-item { 
+      
+      details.cuot-faq-item {
           background: white;
           margin-bottom: 1rem; 
           border-radius: 8px;
-          padding: 1.5rem;
+          padding: 1rem 1.5rem;
           box-shadow: 0 2px 5px rgba(0,0,0,0.03);
           border-left: 4px solid #ec7b5d; /* Orange accent */
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-      }
-      .cuot-faq-item:hover {
-          transform: translateX(4px);
-          box-shadow: 0 4px 10px rgba(236, 123, 93, 0.1);
+          transition: all 0.3s ease;
       }
       
-      .cuot-faq-question { 
+      details.cuot-faq-item[open] {
+          box-shadow: 0 6px 12px rgba(236, 123, 93, 0.1);
+          padding-bottom: 1.5rem;
+      }
+
+      summary.cuot-faq-question {
           font-family: 'Comfortaa', cursive; 
           color: #ec7b5d; 
           font-weight: 700; 
           font-size: 1.1rem; 
-          margin-bottom: 0.5rem; 
+          cursor: pointer;
+          list-style: none; /* Hide default triangle */
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          outline: none;
       }
-      .cuot-faq-answer { font-size: 0.95rem; color: #666; }
+      
+      /* Chrome/Safari marker hide */
+      summary.cuot-faq-question::-webkit-details-marker {
+          display: none;
+      }
+
+      /* Custom Plus Icon using CSS */
+      summary.cuot-faq-question::after {
+          content: '+';
+          font-size: 1.5rem;
+          font-weight: 300;
+          color: #ec7b5d;
+          transition: transform 0.3s ease;
+      }
+      
+      details[open] summary.cuot-faq-question::after {
+          transform: rotate(45deg);
+      }
+
+      .cuot-faq-answer { 
+          font-size: 0.95rem; 
+          color: #666; 
+          margin-top: 0.5rem;
+          padding-top: 0.5rem;
+          border-top: 1px dashed #eee;
+          line-height: 1.7;
+      }
 
       /* Responsive Video Container */
       .cuot-video-container {
@@ -248,6 +314,7 @@ const BLOG_CSS = `
       
       @media (max-width: 768px) {
         .cuot-grid { flex-direction: column; }
+        .cuot-entity-list dl { grid-template-columns: 1fr; gap: 0.5rem; }
         .cuot-btn { width: 100%; box-sizing: border-box; } /* Full width on mobile */
       }
     </style>
@@ -513,6 +580,12 @@ export default function App() {
 
           // Apply Keyword Highlighting
           const processedContent = highlightKeywords(section.content, inputKeywords);
+          
+          // Zero-Click Snippet
+          let snippetHtml = '';
+          if (section.snippet) {
+              snippetHtml = `<div class="cuot-snippet">${section.snippet}</div>`;
+          }
 
           html += `<section class="cuot-section" id="${sectionId}">`;
 
@@ -525,6 +598,7 @@ export default function App() {
                  html += `<div style="margin-bottom: 1.5rem; float: right; margin-left: 2rem; max-width: 40%;">${imageHtml}</div>`;
               }
               
+              html += snippetHtml;
               html += `${processedContent}`;
               
               // TOC INJECTION
@@ -533,6 +607,7 @@ export default function App() {
                  <span class="cuot-toc-title">Inhoudsopgave</span>
                  <ul class="cuot-toc-list">
                     ${tocItems.slice(1).map(item => `<li><a href="#${item.id}">${item.heading}</a></li>`).join('')}
+                    <li><a href="#entity-section">Kernbegrippen</a></li>
                     <li><a href="#faq-section">Veelgestelde Vragen</a></li>
                  </ul>
               </div>
@@ -550,6 +625,7 @@ export default function App() {
                       html += `
                       <div class="cuot-feature-highlight">
                          ${section.heading ? `<h3>${section.heading}</h3>` : ''}
+                         ${snippetHtml}
                          ${processedContent}
                       </div>`;
                       break;
@@ -568,6 +644,7 @@ export default function App() {
                           <div class="cuot-grid">
                             <div class="cuot-col">
                                ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                               ${snippetHtml}
                                ${processedContent}
                                ${ctaHtml}
                             </div>
@@ -576,7 +653,7 @@ export default function App() {
                             </div>
                           </div>`;
                       } else {
-                          html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${processedContent}${ctaHtml}`;
+                          html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${snippetHtml}${processedContent}${ctaHtml}`;
                       }
                       break;
 
@@ -589,12 +666,13 @@ export default function App() {
                             </div>
                             <div class="cuot-col">
                                ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                               ${snippetHtml}
                                ${processedContent}
                                ${ctaHtml}
                             </div>
                           </div>`;
                       } else {
-                           html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${processedContent}${ctaHtml}`;
+                           html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${snippetHtml}${processedContent}${ctaHtml}`;
                       }
                       break;
 
@@ -602,6 +680,7 @@ export default function App() {
                       html += `
                       <div class="cuot-cta-block">
                          ${section.heading ? `<h2>${section.heading}</h2>` : ''}
+                         ${snippetHtml}
                          ${processedContent}
                          ${ctaHtml}
                       </div>`;
@@ -614,6 +693,7 @@ export default function App() {
                       if (hasImage) {
                            html += `<div style="margin-bottom: 1.5rem; float: right; margin-left: 2rem; max-width: 40%;">${imageHtml}</div>`;
                       }
+                      html += snippetHtml;
                       html += `${processedContent} ${ctaHtml}`;
                       break;
               }
@@ -622,20 +702,43 @@ export default function App() {
           html += `</section>`;
       });
 
+      // 4.5 NEW: SEMANTIC ENTITY SECTION (Knowledge Graph Optimization)
+      if (blog.semanticEntities && blog.semanticEntities.length > 0) {
+          html += `
+          <section class="cuot-section cuot-entity-list" id="entity-section">
+             <h2 style="margin-bottom: 1rem;">Kernbegrippen & Definities</h2>
+             <dl>
+                ${blog.semanticEntities.map(e => `
+                   <dt>${e.concept}</dt>
+                   <dd>${e.definition}</dd>
+                `).join('')}
+             </dl>
+          </section>
+          `;
+      }
+
       // 5. FAQ SECTION + SCHEMA
       if (blog.faq && blog.faq.length > 0) {
+          // --- UPDATED FOR GEO & SEO: Semantic HTML5 Details/Summary Tags ---
+          // Using <details> and <summary> is standard for FAQs and understood by Google.
+          // We also add inline Schema Microdata (itemscope/itemprop) as a fallback/reinforcement to JSON-LD.
           html += `
-          <section class="cuot-section cuot-faq-container" id="faq-section">
+          <section class="cuot-section cuot-faq-container" id="faq-section" itemscope itemtype="https://schema.org/FAQPage">
              <h2 style="margin-bottom: 2rem; text-align: center;">Veelgestelde Vragen</h2>
              ${blog.faq.map(item => `
-               <div class="cuot-faq-item">
-                 <div class="cuot-faq-question">${item.question}</div>
-                 <div class="cuot-faq-answer">${highlightKeywords(item.answer, inputKeywords)}</div>
-               </div>
+               <details class="cuot-faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+                 <summary class="cuot-faq-question" itemprop="name">${item.question}</summary>
+                 <div class="cuot-faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+                    <div itemprop="text">
+                        ${highlightKeywords(item.answer, inputKeywords)}
+                    </div>
+                 </div>
+               </details>
              `).join('')}
           </section>
           `;
 
+          // Keep JSON-LD for maximum compatibility (Google prefers JSON-LD, but semantic HTML helps accessibility)
           const faqSchema = {
             "@context": "https://schema.org",
             "@type": "FAQPage",
@@ -851,7 +954,8 @@ export default function App() {
      const title = generatedBlogData?.title || "Blog Post";
      const description = generatedBlogData?.metaDescription || "";
      const keywordsStr = generatedBlogData?.keywordsUsed?.join(', ') || "";
-     
+     const canonicalUrl = generatedBlogData?.canonicalUrl || "https://creativeuseoftechnology.com/blog/";
+
      // Remove existing style block from content to place it in head
      const bodyContent = editorContent.replace(BLOG_CSS, '');
 
@@ -863,8 +967,8 @@ export default function App() {
     <title>${title}</title>
     <meta name="description" content="${description}">
     <meta name="keywords" content="${keywordsStr}">
+    <link rel="canonical" href="${canonicalUrl}" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
-    <link rel="canonical" href="https://creativeuseoftechnology.com/" />
     ${BLOG_CSS}
 </head>
 <body>
