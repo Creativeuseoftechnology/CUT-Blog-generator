@@ -6,139 +6,10 @@ import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeyword
 import { analyzeContent } from './utils/seoAnalyzer';
 import { fetchSiteProducts, fetchPageContent } from './utils/sitemapService';
 import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy, SocialPost, SeoAnalysis } from './types';
-import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate, Share2, Linkedin, Instagram, Facebook, Check, Compass, Sliders, ChevronDown, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate, Share2, Linkedin, Instagram, Facebook, Check, Compass, Sliders, ChevronDown, PanelRightOpen, PanelRightClose, Gauge } from 'lucide-react';
 
-export default function App() {
-  const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
-  const [activeTab, setActiveTab] = useState<'editor' | 'social'>('editor');
-  
-  const [keywords, setKeywords] = useState('');
-  const [userIntent, setUserIntent] = useState('');
-  const [framework, setFramework] = useState<ContentFramework>('auto');
-  const [extraInstructions, setExtraInstructions] = useState('');
-  const [videoUrl, setVideoUrl] = useState('');
-  
-  // AI Settings
-  const [aiTemperature, setAiTemperature] = useState(0.3);
-  const [aiTopP, setAiTopP] = useState(0.95);
-  
-  // New: Auto generate social posts option
-  const [autoGenerateSocial, setAutoGenerateSocial] = useState(false);
-  
-  // Product & Sitemap State
-  const [sitemapUrl, setSitemapUrl] = useState('https://creativeuseoftechnology.com/sitemap_index.xml');
-  const [availableProducts, setAvailableProducts] = useState<ProductEntry[]>([]);
-  const [isLoadingSitemap, setIsLoadingSitemap] = useState(false);
-  const [sitemapError, setSitemapError] = useState('');
-  
-  const [productSearch, setProductSearch] = useState('');
-  const [selectedProducts, setSelectedProducts] = useState<ProductEntry[]>([]);
-  const [showProductSuggestions, setShowProductSuggestions] = useState(false);
-
-  // Image State
-  const [headerImage, setHeaderImage] = useState<ImageData[]>([]); // Array of 1 for reusability
-  const [contentImages, setContentImages] = useState<ImageData[]>([]);
-  
-  // Editor State
-  const [editorContent, setEditorContent] = useState('');
-  const [generatedBlogData, setGeneratedBlogData] = useState<GeneratedBlog | null>(null);
-  const [showSeoPanel, setShowSeoPanel] = useState(true);
-  const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
-  
-  // Social Media State
-  const [socialStrategy, setSocialStrategy] = useState<SocialMediaStrategy | null>(null);
-  
-  const [progressMessage, setProgressMessage] = useState('');
-  const [modificationPrompt, setModificationPrompt] = useState('');
-  
-  const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-
-  const [intentSuggestions, setIntentSuggestions] = useState<string[]>([]);
-  const [isLoadingIntents, setIsLoadingIntents] = useState(false);
-
-  const [copiedHtml, setCopiedHtml] = useState(false);
-
-  // --- EFFECT: Real-time SEO Analysis ---
-  useEffect(() => {
-    // Simple debounce via timeout
-    const timer = setTimeout(() => {
-        if (editorContent) {
-            const analysis = analyzeContent(editorContent, keywords);
-            setSeoAnalysis(analysis);
-        } else {
-            setSeoAnalysis(null);
-        }
-    }, 800); // Wait 800ms after last typing
-
-    return () => clearTimeout(timer);
-  }, [editorContent, keywords]);
-
-  const handleFetchSitemap = async () => {
-    setIsLoadingSitemap(true);
-    setSitemapError('');
-    try {
-        const products = await fetchSiteProducts(sitemapUrl);
-        if (products.length === 0) {
-            setSitemapError('Geen items gevonden. Controleer de URL.');
-        } else {
-            setAvailableProducts(products);
-        }
-    } catch (e) {
-        setSitemapError('Kon sitemap niet laden. Mogelijk blokkeert de server de proxy.');
-    } finally {
-        setIsLoadingSitemap(false);
-    }
-  };
-
-  // Filter products based on search
-  const filteredProducts = useMemo(() => {
-    if (!productSearch) return [];
-    const term = productSearch.toLowerCase();
-    return availableProducts.filter(p => 
-      (p.name.toLowerCase().includes(term) || p.category.toLowerCase().includes(term)) && 
-      !selectedProducts.find(sp => sp.url === p.url)
-    ).slice(0, 10);
-  }, [productSearch, selectedProducts, availableProducts]);
-
-  const handleAddProduct = (product: ProductEntry) => {
-    setSelectedProducts([...selectedProducts, product]);
-    setProductSearch('');
-    setShowProductSuggestions(false);
-  };
-
-  const handleRemoveProduct = (url: string) => {
-    setSelectedProducts(selectedProducts.filter(p => p.url !== url));
-  };
-
-  // --- VIDEO PARSER ---
-  const parseVideo = (url: string): { type: 'youtube' | 'vimeo', id: string, thumb?: string, link?: string } | null => {
-    if (!url) return null;
-    // YouTube
-    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
-    if (ytMatch && ytMatch[1]) {
-      return { 
-          type: 'youtube', 
-          id: ytMatch[1],
-          thumb: `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`, // Try maxres first for better quality
-          link: `https://www.youtube.com/watch?v=${ytMatch[1]}`
-      };
-    }
-    // Vimeo
-    const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
-    if (vimeoMatch && vimeoMatch[1]) {
-      return { 
-          type: 'vimeo', 
-          id: vimeoMatch[1],
-          // Vimeo thumb requires API, skipping for basic implementation or using generic
-          link: `https://vimeo.com/${vimeoMatch[1]}`
-      };
-    }
-    return null;
-  };
-
-  // --- STYLE CONSTANT ---
-  const BLOG_CSS = `
+// --- STYLE CONSTANT (Moved outside component for global access) ---
+const BLOG_CSS = `
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;700&family=Open+Sans:wght@400;600&display=swap');
       
@@ -330,6 +201,36 @@ export default function App() {
           padding-left: 4px; /* Small nudge right */
       }
 
+      /* Feature Highlight Box */
+      .cuot-feature-highlight {
+          background-color: #fdf6f4;
+          border-left: 6px solid #ec7b5d;
+          padding: 2rem;
+          border-radius: 0 12px 12px 0;
+          margin: 2rem 0;
+      }
+      
+      /* Quote Block */
+      .cuot-quote-block {
+          text-align: center;
+          margin: 3rem 0;
+          padding: 2rem;
+      }
+      .cuot-quote-text {
+          font-family: 'Comfortaa', cursive;
+          font-size: 1.4rem;
+          font-weight: 700;
+          color: #ec7b5d;
+          line-height: 1.4;
+          margin-bottom: 1rem;
+      }
+      .cuot-quote-author {
+          font-size: 0.9rem;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          color: #888;
+      }
+
       /* Specific Section Styles */
       .cuot-cta-block {
         background-color: #fdf6f4; /* Light Brand BG */
@@ -351,6 +252,134 @@ export default function App() {
       }
     </style>
   `;
+
+export default function App() {
+  const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
+  const [activeTab, setActiveTab] = useState<'editor' | 'social' | 'seo'>('editor');
+  
+  const [keywords, setKeywords] = useState('');
+  const [userIntent, setUserIntent] = useState('');
+  const [framework, setFramework] = useState<ContentFramework>('auto');
+  const [extraInstructions, setExtraInstructions] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  
+  // AI Settings
+  const [aiTemperature, setAiTemperature] = useState(0.3);
+  const [aiTopP, setAiTopP] = useState(0.95);
+  
+  // New: Auto generate social posts option
+  const [autoGenerateSocial, setAutoGenerateSocial] = useState(false);
+  
+  // Product & Sitemap State
+  const [sitemapUrl, setSitemapUrl] = useState('https://creativeuseoftechnology.com/sitemap_index.xml');
+  const [availableProducts, setAvailableProducts] = useState<ProductEntry[]>([]);
+  const [isLoadingSitemap, setIsLoadingSitemap] = useState(false);
+  const [sitemapError, setSitemapError] = useState('');
+  
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProducts, setSelectedProducts] = useState<ProductEntry[]>([]);
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false);
+
+  // Image State
+  const [headerImage, setHeaderImage] = useState<ImageData[]>([]); // Array of 1 for reusability
+  const [contentImages, setContentImages] = useState<ImageData[]>([]);
+  
+  // Editor State
+  const [editorContent, setEditorContent] = useState('');
+  const [generatedBlogData, setGeneratedBlogData] = useState<GeneratedBlog | null>(null);
+  const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
+  
+  // Social Media State
+  const [socialStrategy, setSocialStrategy] = useState<SocialMediaStrategy | null>(null);
+  
+  const [progressMessage, setProgressMessage] = useState('');
+  const [modificationPrompt, setModificationPrompt] = useState('');
+  
+  const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  const [intentSuggestions, setIntentSuggestions] = useState<string[]>([]);
+  const [isLoadingIntents, setIsLoadingIntents] = useState(false);
+
+  const [copiedHtml, setCopiedHtml] = useState(false);
+
+  // --- EFFECT: Real-time SEO Analysis ---
+  useEffect(() => {
+    // Simple debounce via timeout
+    const timer = setTimeout(() => {
+        if (editorContent) {
+            const analysis = analyzeContent(editorContent, keywords);
+            setSeoAnalysis(analysis);
+        } else {
+            setSeoAnalysis(null);
+        }
+    }, 800); // Wait 800ms after last typing
+
+    return () => clearTimeout(timer);
+  }, [editorContent, keywords]);
+
+  const handleFetchSitemap = async () => {
+    setIsLoadingSitemap(true);
+    setSitemapError('');
+    try {
+        const products = await fetchSiteProducts(sitemapUrl);
+        if (products.length === 0) {
+            setSitemapError('Geen items gevonden. Controleer de URL.');
+        } else {
+            setAvailableProducts(products);
+        }
+    } catch (e) {
+        setSitemapError('Kon sitemap niet laden. Mogelijk blokkeert de server de proxy.');
+    } finally {
+        setIsLoadingSitemap(false);
+    }
+  };
+
+  // Filter products based on search
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return [];
+    const term = productSearch.toLowerCase();
+    return availableProducts.filter(p => 
+      (p.name.toLowerCase().includes(term) || p.category.toLowerCase().includes(term)) && 
+      !selectedProducts.find(sp => sp.url === p.url)
+    ).slice(0, 10);
+  }, [productSearch, selectedProducts, availableProducts]);
+
+  const handleAddProduct = (product: ProductEntry) => {
+    setSelectedProducts([...selectedProducts, product]);
+    setProductSearch('');
+    setShowProductSuggestions(false);
+  };
+
+  const handleRemoveProduct = (url: string) => {
+    setSelectedProducts(selectedProducts.filter(p => p.url !== url));
+  };
+
+  // --- VIDEO PARSER ---
+  const parseVideo = (url: string): { type: 'youtube' | 'vimeo', id: string, thumb?: string, link?: string } | null => {
+    if (!url) return null;
+    // YouTube
+    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
+    if (ytMatch && ytMatch[1]) {
+      return { 
+          type: 'youtube', 
+          id: ytMatch[1],
+          thumb: `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`, // Try maxres first for better quality
+          link: `https://www.youtube.com/watch?v=${ytMatch[1]}`
+      };
+    }
+    // Vimeo
+    const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
+    if (vimeoMatch && vimeoMatch[1]) {
+      return { 
+          type: 'vimeo', 
+          id: vimeoMatch[1],
+          // Vimeo thumb requires API, skipping for basic implementation or using generic
+          link: `https://vimeo.com/${vimeoMatch[1]}`
+      };
+    }
+    return null;
+  };
 
   // --- HELPER: Highlight Keywords ---
   const highlightKeywords = (text: string, keywordsStr: string | undefined) => {
@@ -517,6 +546,22 @@ export default function App() {
               }
 
               switch (section.layout) {
+                  case 'feature_highlight':
+                      html += `
+                      <div class="cuot-feature-highlight">
+                         ${section.heading ? `<h3>${section.heading}</h3>` : ''}
+                         ${processedContent}
+                      </div>`;
+                      break;
+
+                  case 'quote_block':
+                      html += `
+                      <div class="cuot-quote-block">
+                          <div class="cuot-quote-text">“${processedContent.replace(/"/g, '')}”</div>
+                          ${section.heading ? `<div class="cuot-quote-author">- ${section.heading}</div>` : ''}
+                      </div>`;
+                      break;
+
                   case 'two_column_image_right':
                       if (hasImage) {
                           html += `
@@ -803,16 +848,39 @@ export default function App() {
   const prepareCompleteHtml = () => {
      if (!editorContent) return "";
      
-     // Check if styles were stripped by contentEditable (browser behavior)
-     let completeHtml = editorContent;
-     if (!completeHtml.includes('<style>')) {
-         completeHtml = BLOG_CSS + completeHtml;
-     }
-     return completeHtml;
+     const title = generatedBlogData?.title || "Blog Post";
+     const description = generatedBlogData?.metaDescription || "";
+     const keywordsStr = generatedBlogData?.keywordsUsed?.join(', ') || "";
+     
+     // Remove existing style block from content to place it in head
+     const bodyContent = editorContent.replace(BLOG_CSS, '');
+
+     return `<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <meta name="description" content="${description}">
+    <meta name="keywords" content="${keywordsStr}">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <link rel="canonical" href="https://creativeuseoftechnology.com/" />
+    ${BLOG_CSS}
+</head>
+<body>
+    ${bodyContent}
+</body>
+</html>`;
   };
 
   const handleCopyHtml = () => {
-    const htmlToCopy = prepareCompleteHtml();
+    // For copy to clipboard, we just copy the body fragment + styles because users likely paste into a CMS body field
+    // But we check if style is missing
+    let htmlToCopy = editorContent;
+    if (!htmlToCopy.includes('<style>')) {
+         htmlToCopy = BLOG_CSS + htmlToCopy;
+    }
+
     if (!htmlToCopy) return;
 
     navigator.clipboard.writeText(htmlToCopy);
@@ -821,6 +889,7 @@ export default function App() {
   };
 
   const handleDownloadHtml = () => {
+    // For download, we provide the FULL VALID DOC
     const htmlToSave = prepareCompleteHtml();
     if (!htmlToSave) return;
     
@@ -1235,15 +1304,6 @@ export default function App() {
             </div>
           </div>
           
-           <div className="bg-brand-light p-6 rounded-xl border border-brand-orange/20">
-            <h3 className="font-display font-bold text-brand-grey mb-3 flex items-center gap-2">
-              <Lightbulb size={18} className="text-brand-orange" />
-              Tip: Afbeeldingen SEO
-            </h3>
-            <p className="text-sm text-brand-grey leading-relaxed">
-                De AI genereert nu automatisch <strong>ALT-teksten</strong> en <strong>Titels</strong> voor zowel je hoofdfoto als je content foto's. Deze worden direct in de HTML code verwerkt voor optimale vindbaarheid in Google Afbeeldingen.
-            </p>
-          </div>
         </div>
 
         {/* Right Column: Editor & Social */}
@@ -1256,6 +1316,12 @@ export default function App() {
                  className={`flex-1 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${activeTab === 'editor' ? 'bg-brand-orange text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
               >
                  <FileText size={16} /> Blog Editor
+              </button>
+              <button 
+                 onClick={() => setActiveTab('seo')}
+                 className={`flex-1 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${activeTab === 'seo' ? 'bg-brand-orange text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                 <Gauge size={16} /> SEO Analyse
               </button>
               <button 
                  onClick={() => setActiveTab('social')}
@@ -1302,15 +1368,6 @@ export default function App() {
               {editorContent && (
                   <div className="flex justify-end gap-2 mb-4">
                        <button 
-                          onClick={() => setShowSeoPanel(!showSeoPanel)}
-                          className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm border ${showSeoPanel ? 'bg-brand-light text-brand-orange border-brand-orange/30' : 'bg-white text-slate-600 border-slate-200'}`}
-                          title="Toon/Verberg SEO Score"
-                        >
-                          {showSeoPanel ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
-                          SEO
-                       </button>
-                       <div className="flex-1"></div>
-                       <button 
                           onClick={handleDownloadHtml}
                           className="bg-slate-600 text-white hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
                           title="Download als .html bestand (Aanbevolen voor grote bestanden)"
@@ -1328,7 +1385,7 @@ export default function App() {
                   </div>
               )}
 
-              {/* Editor Area with Sidebar */}
+              {/* Editor Area */}
               <div className="flex gap-4 min-h-[600px] relative">
                  {status === AppStatus.MODIFYING_TEXT && (
                     <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/50 backdrop-blur-sm rounded-xl">
@@ -1340,21 +1397,12 @@ export default function App() {
                  )}
                  
                  {editorContent ? (
-                    <>
-                      <div className="flex-1">
+                    <div className="flex-1">
                          <RichTextEditor 
                             initialContent={editorContent} 
                             onChange={setEditorContent} 
                          />
-                      </div>
-                      
-                      {/* SEO SIDEBAR */}
-                      {showSeoPanel && seoAnalysis && (
-                          <div className="w-80 shrink-0 hidden xl:block">
-                              <SeoScorecard analysis={seoAnalysis} />
-                          </div>
-                      )}
-                    </>
+                    </div>
                  ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 p-12">
                        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
@@ -1364,13 +1412,20 @@ export default function App() {
                     </div>
                  )}
               </div>
-              
-              {/* Mobile SEO Panel (Below Editor) */}
-              {editorContent && showSeoPanel && seoAnalysis && (
-                  <div className="xl:hidden mt-4">
-                      <SeoScorecard analysis={seoAnalysis} />
-                  </div>
-              )}
+          </div>
+
+          {/* SEO ANALYSE VIEW */}
+          <div className={activeTab === 'seo' ? 'block' : 'hidden'}>
+               {seoAnalysis ? (
+                   <SeoScorecard analysis={seoAnalysis} />
+               ) : (
+                    <div className="w-full h-64 flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 p-12">
+                       <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                          <Gauge size={32} className="text-slate-300" />
+                       </div>
+                       <p className="font-display text-center">Genereer content en begin met typen om een SEO score te zien.</p>
+                    </div>
+               )}
           </div>
 
           {/* SOCIAL MEDIA VIEW */}

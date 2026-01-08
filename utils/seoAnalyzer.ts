@@ -133,6 +133,17 @@ export const analyzeContent = (htmlContent: string, targetKeywords: string): Seo
     result.issues.good.push(`${links.length} links gevonden.`);
   }
 
+  // CRITICAL: Check for accidental noindex tags in content
+  // Sometimes people copy-paste metadata into the body
+  const metaRobots = doc.querySelector('meta[name="robots"]');
+  if (metaRobots) {
+      const content = metaRobots.getAttribute('content')?.toLowerCase() || "";
+      if (content.includes('noindex')) {
+          result.issues.critical.push("LET OP: Er staat een 'noindex' tag in je code. Google zal dit NIET indexeren.");
+          result.score -= 50;
+      }
+  }
+
   // Cap Score
   result.score = Math.max(0, Math.min(100, result.score));
 

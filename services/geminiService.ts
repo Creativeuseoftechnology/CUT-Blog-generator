@@ -26,7 +26,7 @@ const BLOG_SCHEMA = {
   properties: {
     title: { 
       type: Type.STRING,
-      description: "H1 titel (max 12 woorden). Geen herhaling." 
+      description: "H1 titel: Kort, krachtig en bevat het hoofdzoekwoord (max 60 tekens)." 
     },
     metaDescription: { 
       type: Type.STRING,
@@ -71,10 +71,14 @@ const BLOG_SCHEMA = {
       items: {
         type: Type.OBJECT,
         properties: {
-          layout: { type: Type.STRING, enum: ['hero', 'full_width', 'two_column_image_left', 'two_column_image_right', 'cta_block'] },
-          heading: { type: Type.STRING },
+          layout: { 
+            type: Type.STRING, 
+            enum: ['hero', 'full_width', 'two_column_image_left', 'two_column_image_right', 'cta_block', 'feature_highlight', 'quote_block'],
+            description: "Kies 'feature_highlight' voor technische specs/materials. Kies 'quote_block' voor reviews/quotes."
+          },
+          heading: { type: Type.STRING, description: "H2/H3 Titel: Bondig (max 8 woorden), SEO-rijk, Sentence case." },
           content: { type: Type.STRING },
-          ctaText: { type: Type.STRING, description: "Beschrijvende knop tekst (bijv: 'Bekijk wereldkaarten')." },
+          ctaText: { type: Type.STRING, description: "Actiegericht en specifiek voor de URL (bijv: 'Bekijk [ProductNaam]'). Geen 'Klik hier'." },
           ctaUrl: { type: Type.STRING }
         }
       }
@@ -129,15 +133,6 @@ export const generateBlogContent = async (
      `[PRODUCT INFO START: ${focusedProducts[index]?.name}]\n${detail}\n[PRODUCT INFO END]\n`
   ).join('\n');
 
-  const productInstruction = focusedProducts.length > 0
-    ? `LINKING RULES (STRICT):
-       1. Verwerk interne links naar onderstaande producten OP EEN NATUURLIJKE MANIER in de tekst.
-       2. Gebruik exact deze URL's. Verzin geen URL's.
-       
-       BESCHIKBARE LINKS:
-       ${productContextList}`
-    : `Gebruik sitemap structuur voor algemene links indien relevant.`;
-
   // Define logic for framework selection
   let frameworkInstruction = "";
   if (framework === 'auto') {
@@ -167,18 +162,40 @@ export const generateBlogContent = async (
     ${BRAND_VOICE}
     ${SITEMAP_CONTEXT}
     
-    === STRATEGISCHE INZICHTEN (STRIKTE RICHTLIJNEN) ===
-    1. INTENT MATCH: Als intentie = 'kopen', focus op USP's. Als intentie = 'inspiratie', focus op ideeën. Focus op AMBACHT en PROCES (hoe we het doen).
-    2. SEARCH GAPS: Schrijf inspirerend voor de oriëntatiefase (bijv. "uniek cadeau", "duurzaam relatiegeschenk").
-    3. AUTORITEIT: Gebruik de zin: "Al duizenden klanten gingen je voor met een gemiddelde score van 9.6". Verwerk dit subtiel.
-    4. SEO HYGIËNE: Max 1 H1 (is de titel). Gebruik H2/H3. Meta desc max 155 tekens (CTR focus).
-    5. GEO-OPTIMALISATIE: Vermeld expliciet "Geproduceerd in Breda" of "Nederlands vakmanschap" in de tekst.
-    
+    === LINKING STRATEGIE (CRUCIAAL & STRIKT) ===
+    1. **ALLEEN GESELECTEERDE LINKS:** Gebruik UITSLUITEND de URL's die hieronder staan bij 'BESCHIKBARE LINKS'.
+    2. **GEEN FANTASIE:** Verzin NOOIT zelf een URL. Als er geen passende productlink is in de lijst, plaats dan GEEN link.
+    3. **CTA MATCH:** De tekst op de knop (ctaText) moet direct slaan op de pagina waarheen gelinkt wordt.
+       - FOUT: Link naar '/houten-wereldkaart' -> Tekst: 'Neem contact op'.
+       - GOED: Link naar '/houten-wereldkaart' -> Tekst: 'Ontdek houten wereldkaarten'.
+    4. **NATUURLIJK:** Verwerk interne links in de lopende tekst waar mogelijk, maar gebruik CTA blokken voor de belangrijkste conversiepunten.
+
+    BESCHIKBARE LINKS (Kies hieruit):
+    ${productContextList}
+
+    === SEO TITEL INSTRUCTIES (H1, H2, H3) ===
+    - **H1:** Moet het hoofdzoekwoord bevatten, max 60 tekens, en uitnodigen tot klikken.
+    - **H2/H3:** Maak ze BONDIG (max 8-10 woorden). Geen lange zinnen.
+    - **OPBOUW:** Gebruik 'Sentence case' (Alleen eerste letter hoofdletter, tenzij eigennaam).
+    - **INHOUD:** Titels moeten informatief zijn ("Voordelen van acrylaat") in plaats van vaag ("Meer informatie").
+
+    === DIEPGAANDE PRODUCT INTEGRATIE ===
+    De gebruiker heeft productinformatie aangeleverd. GEBRUIK DEZE INFORMATIE ACTIEF!
+    - Benoem specifieke materialen (bijv. FSC hout, gerecycled acrylaat) die in de input staan.
+    - Benoem specifieke afmetingen of technische details als ze relevant zijn.
+    - Haal unieke eigenschappen uit de "KORTE OMSCHRIJVING" en "DETAILS" van de input.
+    - Vertel *waarom* dit product bijzonder is op basis van de input data.
+
+    === VISUELE LAYOUT & CREATIVITEIT ===
+    Maak gebruik van de beschikbare layouts om "Walls of text" te voorkomen:
+    - Gebruik 'feature_highlight' voor het uitlichten van materialen, specificaties of unieke voordelen.
+    - Gebruik 'quote_block' voor het tonen van een klantreview (uit de input data) of een krachtig statement.
+    - Wissel af: Hero -> Text -> Highlight -> Image Left -> Quote -> Image Right -> CTA.
+
     === SECTIE SOCIAL PROOF (VERPLICHT) ===
-    In de INPUT DATA staan mogelijk 'KLANT REVIEWS'.
     - Maak EEN SPECIFIEKE SECTIE (H2) genaamd "Wat anderen vinden" (of variatie).
-    - Gebruik letterlijke quotes ("...") uit de data om kwaliteit en levering te bewijzen.
-    - Als er geen specifieke reviews zijn, gebruik de algemene bedrijfs-score van 9.6/10 op basis van 2000+ reviews.
+    - Gebruik letterlijke quotes ("...") uit de INPUT DATA om kwaliteit te bewijzen.
+    - Als er geen specifieke reviews zijn, gebruik de algemene bedrijfs-score van 9.6/10.
 
     === SCHEMA MARKUP (JSON-LD) ===
     Genereer in het veld 'schemaMarkup' een complete JSON-LD string.
@@ -188,7 +205,6 @@ export const generateBlogContent = async (
     3. VOOR REVIEW SCORES (AggregateRating):
        - Als je 9.6 gebruikt, MOET je "bestRating": "10" toevoegen.
        - Structuur: {"@type": "AggregateRating", "ratingValue": "9.6", "reviewCount": "2150", "bestRating": "10", "worstRating": "1"}
-       - Dit voorkomt "Out of range" errors in Google Search Console.
     Zorg dat dit VALID JSON is (geen script tags).
 
     === FRAMEWORK SELECTIE ===
@@ -205,18 +221,13 @@ export const generateBlogContent = async (
     
     === PRODUCT CONTEXT (BRONMATERIAAL MET REVIEWS) ===
     ${detailedProductContext}
-    
-    === STRATEGIE INSTRUCTIES ===
-    ${productInstruction}
 
     === WRITING GUIDELINES ===
-    1. **Koppen:** Sentence case. Verwerk zoekwoorden natuurlijk.
-    2. **Content:** Schrijf converterende tekst. Als een sectie een afbeelding heeft (zie context), refereer hiernaar.
-    3. **Opmaak:** GEEN markdown bolding (**) in de JSON strings.
-    4. **JSON SYNTAX (CRITICAAL):** 
+    1. **Content:** Schrijf converterende tekst. Als een sectie een afbeelding heeft, refereer hiernaar.
+    2. **Opmaak:** GEEN markdown bolding (**) in de JSON strings.
+    3. **JSON SYNTAX (CRITICAAL):** 
        - GEEN newlines (\n) in JSON strings.
        - Houd 'question' en 'answer' velden op 1 regel.
-    5. **CTA Knoppen:** Gebruik beschrijvende tekst (bijv. "Ontwerp jouw lamp") i.p.v. "Klik hier".
 
     OUTPUT: JSON ONLY. Volg exact het schema.
   `;
@@ -274,12 +285,16 @@ export const modifyBlogContent = async (
     HUIDIGE BLOG: ${JSON.stringify(currentBlog)}
     INSTRUCTIE: "${modificationRequest}"
     
+    STRIKTE LINK REGELS BIJ AANPASSINGEN:
+    - Verander de bestaande 'ctaUrl' waarden NIET, tenzij expliciet gevraagd in de instructie.
+    - Verzin NOOIT nieuwe URL's die niet in de originele data stonden.
+    
     REGELS: 
     - Behoud 'Sentence case' in titels.
+    - Houd titels kort en bondig.
     - GEEN markdown bolding (**).
     - GEEN newlines in JSON strings.
     - Zorg voor valide JSON output.
-    - Behoud de Breda/NL Vakmanschap tone-of-voice.
   `;
 
   try {

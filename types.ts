@@ -8,7 +8,7 @@ export interface ImageData {
   optimizedBlob?: Blob; // Compressed WebP blob
 }
 
-export type SectionLayout = 'hero' | 'full_width' | 'two_column_image_left' | 'two_column_image_right' | 'cta_block' | 'product_grid';
+export type SectionLayout = 'hero' | 'full_width' | 'two_column_image_left' | 'two_column_image_right' | 'cta_block' | 'feature_highlight' | 'quote_block';
 export type ContentFramework = 'auto' | 'inspiration' | 'expert' | 'business' | 'comparison' | 'process';
 
 export interface BlogSection {
