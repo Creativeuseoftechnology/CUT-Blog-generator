@@ -2,11 +2,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { RichTextEditor } from './components/RichTextEditor';
 import { SeoScorecard } from './components/SeoScorecard';
-import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions, getIntentSuggestions, generateSocialMediaStrategy } from './services/geminiService';
+import { analyzeImageContent, generateBlogContent, modifyBlogContent, getKeywordSuggestions, getIntentSuggestions, generateSocialMediaStrategy, analyzeToneOfVoice, translateBlogContent } from './services/geminiService';
 import { analyzeContent } from './utils/seoAnalyzer';
 import { fetchSiteProducts, fetchPageContent } from './utils/sitemapService';
-import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy, SocialPost, SeoAnalysis } from './types';
-import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate, Share2, Linkedin, Instagram, Facebook, Check, Compass, Sliders, ChevronDown, PanelRightOpen, PanelRightClose, Gauge } from 'lucide-react';
+import { AppStatus, GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy, SocialPost, SeoAnalysis, SupportedLanguage } from './types';
+import { Sparkles, Target, Search, FileText, Lightbulb, ArrowRight, Bot, ShoppingBag, MessageSquarePlus, RefreshCw, Plus, Tag, X, Copy, ClipboardCheck, Globe, SearchCheck, Database, PenTool, Video, Download, Image as ImageIcon, LayoutTemplate, Share2, Linkedin, Instagram, Facebook, Check, Compass, Sliders, ChevronDown, PanelRightOpen, PanelRightClose, Gauge, Link as LinkIcon, ImageDown, Braces, Monitor, Tablet, Smartphone, Save, Trash2, Wand2, Languages } from 'lucide-react';
 
 // --- STYLE CONSTANT (Moved outside component for global access) ---
 const BLOG_CSS = `
@@ -19,6 +19,7 @@ const BLOG_CSS = `
         line-height: 1.6;
         max-width: 1000px;
         margin: 0 auto;
+        /* Responsive base font size adjustments if needed */
       }
       /* Headings */
       #cuot-blog-wrapper h2, 
@@ -27,6 +28,7 @@ const BLOG_CSS = `
         color: #ec7b5d; /* PMS 2434 C (Orange) */
         font-weight: 700;
         margin-bottom: 0.5em;
+        line-height: 1.3;
       }
       #cuot-blog-wrapper h2 { font-size: 1.8rem; margin-top: 1.5em; scroll-margin-top: 100px; }
       #cuot-blog-wrapper h3 { font-size: 1.4rem; margin-top: 1.2em; }
@@ -93,24 +95,6 @@ const BLOG_CSS = `
       .cuot-img-responsive:hover {
           transform: scale(1.015); /* Subtle zoom */
           box-shadow: 0 12px 24px rgba(0,0,0,0.12); /* Deeper shadow */
-      }
-      
-      /* Header image is the ONLY one allowed to be massive/heroic */
-      .cuot-header-image { 
-          width: 100%; 
-          height: auto; 
-          max-height: 500px;
-          object-fit: cover;
-          border-radius: 12px; 
-          box-shadow: 0 6px 16px rgba(0,0,0,0.12); 
-          display: block; 
-          margin-bottom: 2rem;
-          transition: transform 0.5s ease, box-shadow 0.5s ease;
-      }
-      
-      .cuot-header-image:hover {
-          transform: translateY(-2px); /* Slight lift */
-          box-shadow: 0 15px 30px rgba(0,0,0,0.15);
       }
       
       /* FAQ Section - Improved Design for SEO & GEO (Details/Summary) */
@@ -314,15 +298,202 @@ const BLOG_CSS = `
       
       @media (max-width: 768px) {
         .cuot-grid { flex-direction: column; }
+        .cuot-col { flex: 1 1 100%; max-width: 100%; } /* Explicit full width for columns on mobile */
         .cuot-entity-list dl { grid-template-columns: 1fr; gap: 0.5rem; }
         .cuot-btn { width: 100%; box-sizing: border-box; } /* Full width on mobile */
+        .cuot-faq-container { padding: 1.5rem; } /* Reduce padding on mobile */
+        #cuot-blog-wrapper h2 { font-size: 1.5rem; } /* Scale down headings */
+        .cuot-header-image { max-height: 300px; }
       }
     </style>
   `;
 
+// ... [MediaAssetPanel and RankMathPanel components remain unchanged]
+const MediaAssetPanel: React.FC<{ blog: GeneratedBlog; headerImage?: ImageData }> = ({ blog, headerImage }) => {
+  return (
+    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+      <h3 className="text-sm font-bold text-brand-grey mb-3 flex items-center gap-2">
+        <ImageDown size={18} className="text-brand-orange" />
+        Media Assets & Alt Teksten
+      </h3>
+      <div className="space-y-3">
+        {headerImage && (
+          <div className="flex items-start gap-3 p-2 border border-slate-100 rounded-lg bg-slate-50">
+            <div className="w-16 h-16 bg-slate-200 rounded overflow-hidden flex-shrink-0">
+              <img src={headerImage.previewUrl} alt="Header" className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-bold text-slate-500 uppercase">Header Afbeelding</span>
+                <a href={headerImage.previewUrl} download={`header-${blog.permalink}.webp`} className="text-xs text-brand-orange hover:underline">
+                  Download WebP
+                </a>
+              </div>
+              <div className="text-xs text-slate-600 truncate bg-white border border-slate-200 p-1 rounded">
+                <span className="font-bold text-slate-400 mr-1">ALT:</span>
+                {blog.headerImageAlt || 'Geen alt tekst gegenereerd.'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Content Images */}
+        {Object.entries(blog.imageAltMap || {}).map(([key, alt]) => {
+          const keyStr = String(key);
+          const altStr = String(alt);
+          return (
+            <div key={keyStr} className="flex items-start gap-3 p-2 border border-slate-100 rounded-lg bg-slate-50">
+              <div className="w-10 h-10 bg-slate-200 rounded flex items-center justify-center text-slate-400 font-bold text-xs flex-shrink-0">
+                Img {parseInt(keyStr) + 1}
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-bold text-slate-500 uppercase block mb-1">Content Afbeelding {parseInt(keyStr) + 1}</span>
+                <div className="text-xs text-slate-600 bg-white border border-slate-200 p-1 rounded flex justify-between items-center gap-2 group">
+                  <span className="truncate flex-1">{altStr}</span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(altStr)}
+                    className="text-slate-300 hover:text-brand-orange"
+                    title="Kopieer ALT tekst"
+                  >
+                    <Copy size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const RankMathPanel: React.FC<{ blog: GeneratedBlog }> = ({ blog }) => {
+  const [snippetTab, setSnippetTab] = useState<'mobile' | 'desktop'>('mobile');
+
+  return (
+    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-bold text-brand-grey flex items-center gap-2">
+          <SearchCheck size={18} className="text-brand-orange" />
+          Google Snippet Preview (RankMath Style)
+        </h3>
+        <div className="flex bg-slate-100 rounded p-0.5">
+          <button
+            onClick={() => setSnippetTab('mobile')}
+            className={`p-1 rounded ${snippetTab === 'mobile' ? 'bg-white shadow text-brand-orange' : 'text-slate-400'}`}
+          >
+            <Smartphone size={14} />
+          </button>
+          <button
+            onClick={() => setSnippetTab('desktop')}
+            className={`p-1 rounded ${snippetTab === 'desktop' ? 'bg-white shadow text-brand-orange' : 'text-slate-400'}`}
+          >
+            <Monitor size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Google Preview Container */}
+      <div className="bg-white border border-slate-200 rounded p-4 mb-4">
+        {snippetTab === 'mobile' ? (
+          <div className="font-sans max-w-[360px]">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 bg-slate-100 rounded-full flex items-center justify-center text-[10px] text-slate-500 border border-slate-200">
+                <img
+                  src="https://creativeuseoftechnology.com/wp-content/uploads/2021/01/favicon-150x150.png"
+                  alt="icon"
+                  className="w-4 h-4 opacity-70"
+                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                />
+              </div>
+              <div className="flex flex-col leading-tight">
+                <span className="text-[12px] text-[#202124]">Creative Use of Technology</span>
+                <span className="text-[12px] text-[#5f6368]">
+                  creativeuseoftechnology.com › blog › {blog.permalink?.split('-').slice(0, 2).join('-')}...
+                </span>
+              </div>
+            </div>
+            <div className="text-[#1558d6] text-[16px] leading-snug mb-1 hover:underline cursor-pointer">
+              {blog.title.length > 60 ? blog.title.substring(0, 60) + '...' : blog.title}
+            </div>
+            <div className="text-[#3c4043] text-[14px] leading-snug">
+              <span className="text-[#70757a]">
+                {new Date().toLocaleDateString(blog.language || 'nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })} —{' '}
+              </span>
+              {blog.metaDescription.length > 150 ? blog.metaDescription.substring(0, 150) + '...' : blog.metaDescription}
+            </div>
+          </div>
+        ) : (
+          <div className="font-sans max-w-[600px]">
+            <div className="flex items-center gap-1 text-[14px] text-[#202124] leading-snug mb-0.5">
+              <span>creativeuseoftechnology.com</span>
+              <span className="text-[#5f6368]">› blog › {blog.permalink}</span>
+              <ChevronDown size={10} className="text-[#5f6368]" />
+            </div>
+            <div className="text-[#1a0dab] text-[20px] leading-snug mb-0.5 hover:underline cursor-pointer">
+              {blog.title}
+            </div>
+            <div className="text-[#4d5156] text-[14px] leading-snug">
+              <span className="text-[#70757a]">
+                {new Date().toLocaleDateString(blog.language || 'nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })} —{' '}
+              </span>
+              {blog.metaDescription}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Edit Fields */}
+      <div className="space-y-3">
+        <div>
+          <div className="flex justify-between">
+            <label className="text-xs font-bold text-slate-500 uppercase">SEO Titel</label>
+            <span className={`text-xs font-bold ${blog.title.length > 60 ? 'text-red-500' : 'text-green-500'}`}>
+              {blog.title.length} / 60
+            </span>
+          </div>
+          <div className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700">{blog.title}</div>
+        </div>
+        <div>
+          <div className="flex justify-between">
+            <label className="text-xs font-bold text-slate-500 uppercase">Permalink</label>
+            <span className={`text-xs font-bold ${blog.permalink?.length > 75 ? 'text-orange-500' : 'text-green-500'}`}>
+              {blog.permalink?.length || 0} / 75
+            </span>
+          </div>
+          <div className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 flex items-center gap-1">
+            <span className="text-slate-400">.../blog/</span>
+            <span>{blog.permalink}</span>
+          </div>
+        </div>
+        <div>
+          <div className="flex justify-between">
+            <label className="text-xs font-bold text-slate-500 uppercase">Meta Beschrijving</label>
+            <span
+              className={`text-xs font-bold ${
+                blog.metaDescription.length > 160 ? 'text-red-500' : 'text-green-500'
+              }`}
+            >
+              {blog.metaDescription.length} / 160
+            </span>
+          </div>
+          <textarea
+            readOnly
+            className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-sm text-slate-700 h-20 resize-none"
+            value={blog.metaDescription}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [activeTab, setActiveTab] = useState<'editor' | 'social' | 'seo'>('editor');
+  
+  // Responsive Preview State
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   
   const [keywords, setKeywords] = useState('');
   const [userIntent, setUserIntent] = useState('');
@@ -330,49 +501,101 @@ export default function App() {
   const [extraInstructions, setExtraInstructions] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   
+  // New: Tone of Voice
+  const [toneSample, setToneSample] = useState('');
+  const [analyzedTone, setAnalyzedTone] = useState('');
+  
   // AI Settings
   const [aiTemperature, setAiTemperature] = useState(0.3);
   const [aiTopP, setAiTopP] = useState(0.95);
   
-  // New: Auto generate social posts option
   const [autoGenerateSocial, setAutoGenerateSocial] = useState(false);
-  
-  // Product & Sitemap State
   const [sitemapUrl, setSitemapUrl] = useState('https://creativeuseoftechnology.com/sitemap_index.xml');
   const [availableProducts, setAvailableProducts] = useState<ProductEntry[]>([]);
   const [isLoadingSitemap, setIsLoadingSitemap] = useState(false);
   const [sitemapError, setSitemapError] = useState('');
-  
   const [productSearch, setProductSearch] = useState('');
   const [selectedProducts, setSelectedProducts] = useState<ProductEntry[]>([]);
   const [showProductSuggestions, setShowProductSuggestions] = useState(false);
-
-  // Image State
-  const [headerImage, setHeaderImage] = useState<ImageData[]>([]); // Array of 1 for reusability
+  const [headerImage, setHeaderImage] = useState<ImageData[]>([]); 
   const [contentImages, setContentImages] = useState<ImageData[]>([]);
-  
-  // Editor State
   const [editorContent, setEditorContent] = useState('');
+  
+  // Multi-Language State
   const [generatedBlogData, setGeneratedBlogData] = useState<GeneratedBlog | null>(null);
+  const [blogVersions, setBlogVersions] = useState<Record<string, GeneratedBlog>>({});
+
   const [seoAnalysis, setSeoAnalysis] = useState<SeoAnalysis | null>(null);
-  
-  // Social Media State
   const [socialStrategy, setSocialStrategy] = useState<SocialMediaStrategy | null>(null);
-  
   const [progressMessage, setProgressMessage] = useState('');
   const [modificationPrompt, setModificationPrompt] = useState('');
-  
   const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-
   const [intentSuggestions, setIntentSuggestions] = useState<string[]>([]);
   const [isLoadingIntents, setIsLoadingIntents] = useState(false);
-
   const [copiedHtml, setCopiedHtml] = useState(false);
+
+  // --- LOCAL STORAGE PERSISTENCE (AUTO SAVE) ---
+  useEffect(() => {
+    // Load from local storage on mount
+    const savedState = localStorage.getItem('cuot_blog_state');
+    if (savedState) {
+        try {
+            const parsed = JSON.parse(savedState);
+            setKeywords(parsed.keywords || '');
+            setUserIntent(parsed.userIntent || '');
+            setExtraInstructions(parsed.extraInstructions || '');
+            setToneSample(parsed.toneSample || '');
+            setAnalyzedTone(parsed.analyzedTone || '');
+            setEditorContent(parsed.editorContent || '');
+            
+            // Only restore if valid
+            if (parsed.generatedBlogData) {
+                setGeneratedBlogData(parsed.generatedBlogData);
+                // Also restore versions if saved (or init with current)
+                setBlogVersions(parsed.blogVersions || { [parsed.generatedBlogData.language || 'nl']: parsed.generatedBlogData });
+                setActiveTab('editor');
+            }
+        } catch (e) { console.error("Could not load state", e); }
+    }
+  }, []);
+
+  // Save on change (Debounced slightly)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        const stateToSave = {
+            keywords,
+            userIntent,
+            extraInstructions,
+            toneSample,
+            analyzedTone,
+            editorContent,
+            generatedBlogData,
+            blogVersions
+        };
+        localStorage.setItem('cuot_blog_state', JSON.stringify(stateToSave));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [keywords, userIntent, extraInstructions, toneSample, analyzedTone, editorContent, generatedBlogData, blogVersions]);
+
+  const handleClearDraft = () => {
+      if(window.confirm("Weet je zeker dat je alles wilt wissen? Je opgeslagen werk gaat verloren.")) {
+          localStorage.removeItem('cuot_blog_state');
+          setKeywords('');
+          setUserIntent('');
+          setExtraInstructions('');
+          setToneSample('');
+          setAnalyzedTone('');
+          setEditorContent('');
+          setGeneratedBlogData(null);
+          setBlogVersions({});
+          setSelectedProducts([]);
+          setActiveTab('editor');
+      }
+  };
 
   // --- EFFECT: Real-time SEO Analysis ---
   useEffect(() => {
-    // Simple debounce via timeout
     const timer = setTimeout(() => {
         if (editorContent) {
             const analysis = analyzeContent(editorContent, keywords);
@@ -380,8 +603,7 @@ export default function App() {
         } else {
             setSeoAnalysis(null);
         }
-    }, 800); // Wait 800ms after last typing
-
+    }, 800);
     return () => clearTimeout(timer);
   }, [editorContent, keywords]);
 
@@ -395,14 +617,13 @@ export default function App() {
         } else {
             setAvailableProducts(products);
         }
-    } catch (e) {
+    } catch (e: any) {
         setSitemapError('Kon sitemap niet laden. Mogelijk blokkeert de server de proxy.');
     } finally {
         setIsLoadingSitemap(false);
     }
   };
 
-  // Filter products based on search
   const filteredProducts = useMemo(() => {
     if (!productSearch) return [];
     const term = productSearch.toLowerCase();
@@ -422,48 +643,34 @@ export default function App() {
     setSelectedProducts(selectedProducts.filter(p => p.url !== url));
   };
 
-  // --- VIDEO PARSER ---
   const parseVideo = (url: string): { type: 'youtube' | 'vimeo', id: string, thumb?: string, link?: string } | null => {
     if (!url) return null;
-    // YouTube
     const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
     if (ytMatch && ytMatch[1]) {
       return { 
           type: 'youtube', 
           id: ytMatch[1],
-          thumb: `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`, // Try maxres first for better quality
+          thumb: `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`,
           link: `https://www.youtube.com/watch?v=${ytMatch[1]}`
       };
     }
-    // Vimeo
     const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
     if (vimeoMatch && vimeoMatch[1]) {
       return { 
           type: 'vimeo', 
           id: vimeoMatch[1],
-          // Vimeo thumb requires API, skipping for basic implementation or using generic
           link: `https://vimeo.com/${vimeoMatch[1]}`
       };
     }
     return null;
   };
 
-  // --- HELPER: Highlight Keywords ---
   const highlightKeywords = (text: string, keywordsStr: string | undefined) => {
       if (!text) return "";
-      
-      // Step 1: Clean Markdown bolding (**) from the AI output completely
-      // This prevents the issue where the AI writes "**keyword**" and we wrap it again
       let cleanText = text.replace(/\*\*/g, '');
-
       if (!keywordsStr) return cleanText;
-      
-      // Split keywords by comma, trim, and sort by length desc to match longest phrases first
       const keys = keywordsStr.split(',').map(k => k.trim()).filter(k => k.length > 2).sort((a, b) => b.length - a.length);
-      
       let highlightedText = cleanText;
-      
-      // Use a placeholder strategy to avoid re-replacing inside HTML tags or already replaced tags
       keys.forEach((key) => {
           const regex = new RegExp(`(${key})`, 'gi');
           highlightedText = highlightedText.replace(regex, '<strong class="cuot-keyword">$1</strong>');
@@ -471,57 +678,32 @@ export default function App() {
       return highlightedText;
   };
 
-  // --- PROFESSIONAL HTML GENERATOR ENGINE ---
   const convertToHtmlString = (blog: GeneratedBlog, currentContentImages: ImageData[], currentHeaderImage: ImageData | null, videoInputUrl: string, inputKeywords: string) => {
       let html = BLOG_CSS;
-
-      // 1. BRAND STYLE WRAPPER START
-      html += `<div id="cuot-blog-wrapper">`;
-
-      // 2. META DATA
+      html += `<div id="cuot-blog-wrapper" lang="${blog.language || 'nl'}">`;
       html += `<!-- 
          POST TITLE: ${blog.title} 
          META DESC: ${blog.metaDescription}
          KEYWORDS: ${blog.keywordsUsed?.join(', ')}
          STRATEGY: ${blog.geoStrategy}
+         LANGUAGE: ${blog.language || 'nl'}
       -->`;
-
-      // 3. HEADER SECTION WITH HERO IMAGE
-      html += `<header class="cuot-section">`;
-      html += `<p style="font-style: italic; color: #888; margin-bottom: 1.5rem;">${blog.metaDescription}</p>`;
       
-      // Header Image Injection
-      if (currentHeaderImage) {
-          const src = `data:${currentHeaderImage.mimeType};base64,${currentHeaderImage.base64}`;
-          const alt = blog.headerImageAlt || blog.title || "Creative Use of Technology Header";
-          html += `<img src="${src}" alt="${alt}" title="${alt}" class="cuot-header-image" width="1200" height="600" />`;
-      }
-      
-      html += `</header>`;
-
-      // Prepare Video Embed (Responsive Iframe)
       const videoInfo = parseVideo(videoInputUrl);
       let videoHtml = '';
-      
       if (videoInfo) {
-          // --- SEO RICH RESULTS VIDEO OBJECT ---
-          // This ensures Google understands the video context, separate from the iframe
           const videoSchema = {
              "@context": "https://schema.org",
              "@type": "VideoObject",
-             "name": `Video: ${blog.title}`, // Fallback title based on blog
+             "name": `Video: ${blog.title}`,
              "description": `Video over ${blog.keywordsUsed?.join(', ') || blog.title}. ${blog.metaDescription}`,
              "thumbnailUrl": videoInfo.thumb || "https://creativeuseoftechnology.com/wp-content/uploads/placeholder-video.jpg",
-             "uploadDate": new Date().toISOString(), // Required field. Using current date as 'content generated' date.
+             "uploadDate": new Date().toISOString(),
              "embedUrl": videoInfo.type === 'youtube' ? `https://www.youtube.com/embed/${videoInfo.id}` : `https://player.vimeo.com/video/${videoInfo.id}`,
              "contentUrl": videoInfo.link
           };
-          
-          // Inject Schema
           html += `<script type="application/ld+json">${JSON.stringify(videoSchema)}</script>`;
-
           if (videoInfo.type === 'youtube') {
-              // Use srcdoc for YouTube to force thumbnail loading (Lite Embed Pattern)
               const thumb = videoInfo.thumb || `https://img.youtube.com/vi/${videoInfo.id}/hqdefault.jpg`;
               videoHtml = `
               <div class="cuot-video-container">
@@ -550,15 +732,11 @@ export default function App() {
           }
       }
 
-      // --- NEW: TABLE OF CONTENTS GENERATOR ---
-      // We collect headings from sections to build a TOC
-      // Only include headings that actually exist
       const sections = blog.sections || [];
       const tocItems = sections
           .map((s, idx) => ({ heading: s.heading, id: `section-${idx}` }))
           .filter(item => item.heading && item.heading.length > 0);
 
-      // 4. DYNAMIC SECTIONS
       sections.forEach((section, idx) => {
           const imageKey = idx.toString();
           const imgData = currentContentImages[idx];
@@ -574,14 +752,10 @@ export default function App() {
 
           let ctaHtml = '';
           if (section.ctaText && section.ctaUrl) {
-              // Wrapped in div for safe spacing
               ctaHtml = `<div class="cuot-btn-wrapper"><a href="${section.ctaUrl}" class="cuot-btn">${section.ctaText}</a></div>`;
           }
 
-          // Apply Keyword Highlighting
           const processedContent = highlightKeywords(section.content, inputKeywords);
-          
-          // Zero-Click Snippet
           let snippetHtml = '';
           if (section.snippet) {
               snippetHtml = `<div class="cuot-snippet">${section.snippet}</div>`;
@@ -589,19 +763,13 @@ export default function App() {
 
           html += `<section class="cuot-section" id="${sectionId}">`;
 
-          // Inject TOC after the FIRST text block (Hero/Intro) but before the rest
           if (idx === 0 && tocItems.length > 1) {
               html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}`;
-              
-              // If hero has image, float it
               if (hasImage && section.layout === 'hero') {
                  html += `<div style="margin-bottom: 1.5rem; float: right; margin-left: 2rem; max-width: 40%;">${imageHtml}</div>`;
               }
-              
               html += snippetHtml;
               html += `${processedContent}`;
-              
-              // TOC INJECTION
               html += `
               <div class="cuot-toc">
                  <span class="cuot-toc-title">Inhoudsopgave</span>
@@ -612,14 +780,11 @@ export default function App() {
                  </ul>
               </div>
               `;
-              
               html += `${ctaHtml}`;
           } else {
-              // Inject video after the first section (standard logic)
               if (idx === 1 && videoHtml) {
                  html += videoHtml;
               }
-
               switch (section.layout) {
                   case 'feature_highlight':
                       html += `
@@ -629,7 +794,6 @@ export default function App() {
                          ${processedContent}
                       </div>`;
                       break;
-
                   case 'quote_block':
                       html += `
                       <div class="cuot-quote-block">
@@ -637,7 +801,6 @@ export default function App() {
                           ${section.heading ? `<div class="cuot-quote-author">- ${section.heading}</div>` : ''}
                       </div>`;
                       break;
-
                   case 'two_column_image_right':
                       if (hasImage) {
                           html += `
@@ -656,7 +819,6 @@ export default function App() {
                           html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${snippetHtml}${processedContent}${ctaHtml}`;
                       }
                       break;
-
                   case 'two_column_image_left':
                       if (hasImage) {
                           html += `
@@ -675,7 +837,6 @@ export default function App() {
                            html += `${section.heading ? `<h2>${section.heading}</h2>` : ''}${snippetHtml}${processedContent}${ctaHtml}`;
                       }
                       break;
-
                   case 'cta_block':
                       html += `
                       <div class="cuot-cta-block">
@@ -685,7 +846,6 @@ export default function App() {
                          ${ctaHtml}
                       </div>`;
                       break;
-
                   case 'full_width':
                   case 'hero':
                   default:
@@ -698,11 +858,9 @@ export default function App() {
                       break;
               }
           }
-
           html += `</section>`;
       });
 
-      // 4.5 NEW: SEMANTIC ENTITY SECTION (Knowledge Graph Optimization)
       if (blog.semanticEntities && blog.semanticEntities.length > 0) {
           html += `
           <section class="cuot-section cuot-entity-list" id="entity-section">
@@ -717,11 +875,7 @@ export default function App() {
           `;
       }
 
-      // 5. FAQ SECTION + SCHEMA
       if (blog.faq && blog.faq.length > 0) {
-          // --- UPDATED FOR GEO & SEO: Semantic HTML5 Details/Summary Tags ---
-          // Using <details> and <summary> is standard for FAQs and understood by Google.
-          // We also add inline Schema Microdata (itemscope/itemprop) as a fallback/reinforcement to JSON-LD.
           html += `
           <section class="cuot-section cuot-faq-container" id="faq-section" itemscope itemtype="https://schema.org/FAQPage">
              <h2 style="margin-bottom: 2rem; text-align: center;">Veelgestelde Vragen</h2>
@@ -737,8 +891,6 @@ export default function App() {
              `).join('')}
           </section>
           `;
-
-          // Keep JSON-LD for maximum compatibility (Google prefers JSON-LD, but semantic HTML helps accessibility)
           const faqSchema = {
             "@context": "https://schema.org",
             "@type": "FAQPage",
@@ -754,14 +906,10 @@ export default function App() {
           html += `<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`;
       }
       
-      // --- NEW: SCHEMA MARKUP (Article / Product / Review) ---
-      // This is the AI generated schema string
       if (blog.schemaMarkup) {
           html += `<script type="application/ld+json">${blog.schemaMarkup}</script>`;
       }
       
-      // --- NEW: BREADCRUMB SCHEMA (SEO OPTIMIZATION) ---
-      // Adds invisible structure data for Google
       const breadcrumbSchema = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -783,8 +931,26 @@ export default function App() {
       };
       html += `<script type="application/ld+json">${JSON.stringify(breadcrumbSchema)}</script>`;
 
-      html += `</div>`; // Close wrapper
+      html += `</div>`; 
       return html;
+  };
+
+  const handleAnalyzeTone = async () => {
+      if (!toneSample || toneSample.length < 50) {
+          alert("Voer minimaal 50 karakters in om te analyseren.");
+          return;
+      }
+      setStatus(AppStatus.ANALYZING_IMAGES); // Reuse loading status
+      setProgressMessage("Jouw schrijfstijl analyseren...");
+      try {
+          const analysis = await analyzeToneOfVoice(toneSample);
+          setAnalyzedTone(analysis);
+          setStatus(AppStatus.IDLE);
+      } catch (e: any) {
+          console.error(e);
+          setStatus(AppStatus.IDLE);
+          alert("Kon toon niet analyseren.");
+      }
   };
 
   const handleGenerate = async () => {
@@ -794,25 +960,18 @@ export default function App() {
     }
 
     try {
-      // 1. Analyze Images
       setStatus(AppStatus.ANALYZING_IMAGES);
-      
-      // Analyze Header Image
       let headerImageAnalysis = "Geen header foto.";
       if (headerImage.length > 0) {
           setProgressMessage("Header foto analyseren...");
           headerImageAnalysis = await analyzeImageContent(headerImage[0].base64, headerImage[0].mimeType);
       }
-
-      // Analyze Content Images
       setProgressMessage("Content foto's analyseren...");
       const analyzedImageContexts: string[] = [];
       for (const img of contentImages) {
         const description = await analyzeImageContent(img.base64, img.mimeType);
         analyzedImageContexts.push(description);
       }
-
-      // 2. Fetch Product Details (Scraping)
       let productDetails: string[] = [];
       if (selectedProducts.length > 0) {
         setStatus(AppStatus.ANALYZING_IMAGES); 
@@ -824,11 +983,8 @@ export default function App() {
            console.error("Failed scraping product details", err);
         }
       }
-
-      // 3. Generate Blog
       setStatus(AppStatus.GENERATING_TEXT);
       setProgressMessage("Professionele HTML blog layout opbouwen...");
-
       const blogData = await generateBlogContent(
         keywords, 
         userIntent, 
@@ -837,54 +993,83 @@ export default function App() {
         headerImageAnalysis,
         productDetails,
         extraInstructions,
+        analyzedTone, // Pass the analyzed tone OR the raw sample if analysis failed/was skipped
         framework,
-        { temperature: aiTemperature, topP: aiTopP } // Pass new AI settings
+        { temperature: aiTemperature, topP: aiTopP }
       );
-      
       setGeneratedBlogData(blogData);
       
-      // Auto Generate Social Logic
+      // Init Language cache with NL
+      setBlogVersions({ 'nl': blogData });
+      
       if (autoGenerateSocial) {
          setStatus(AppStatus.GENERATING_SOCIAL);
          setProgressMessage("Blog is klaar! Nu social media posts schrijven...");
          try {
              const strategy = await generateSocialMediaStrategy(blogData);
              setSocialStrategy(strategy);
-         } catch(e) {
+         } catch(e: any) {
              console.error("Failed auto social generation", e);
              setSocialStrategy(null);
          }
       } else {
          setSocialStrategy(null);
       }
-      
-      setActiveTab('editor'); // Always start at editor
-      
-      // Convert to HTML string for the editor (pass video url)
+      setActiveTab('editor');
       const initialHtml = convertToHtmlString(blogData, contentImages, headerImage[0] || null, videoUrl, keywords);
       setEditorContent(initialHtml);
-
       setStatus(AppStatus.COMPLETED);
-
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setStatus(AppStatus.ERROR);
       setProgressMessage("Er is iets misgegaan. Controleer de console.");
     }
   };
 
-  const handleGenerateSocial = async () => {
+  const handleTranslate = async (lang: SupportedLanguage) => {
     if (!generatedBlogData) return;
     
+    // Check if we already have this version cached
+    if (blogVersions[lang]) {
+        const cachedBlog = blogVersions[lang];
+        setGeneratedBlogData(cachedBlog);
+        const html = convertToHtmlString(cachedBlog, contentImages, headerImage[0] || null, videoUrl, keywords);
+        setEditorContent(html);
+        return;
+    }
+
+    try {
+        setStatus(AppStatus.TRANSLATING);
+        setProgressMessage(`Vertalen naar ${lang.toUpperCase()} en SEO aanpassen...`);
+        
+        const translatedBlog = await translateBlogContent(generatedBlogData, lang);
+        
+        // Update cache
+        const newVersions = { ...blogVersions, [lang]: translatedBlog };
+        setBlogVersions(newVersions);
+        
+        // Set as active
+        setGeneratedBlogData(translatedBlog);
+        const html = convertToHtmlString(translatedBlog, contentImages, headerImage[0] || null, videoUrl, keywords);
+        setEditorContent(html);
+        
+        setStatus(AppStatus.COMPLETED);
+    } catch (e: any) {
+        console.error("Translation failed", e);
+        setStatus(AppStatus.ERROR);
+        setProgressMessage("Vertaling mislukt. Probeer het opnieuw.");
+    }
+  };
+
+  const handleGenerateSocial = async () => {
+    if (!generatedBlogData) return;
     try {
       setStatus(AppStatus.GENERATING_SOCIAL);
       setProgressMessage("Social media posts schrijven voor LinkedIn, IG, FB & Pinterest...");
-      
       const strategy = await generateSocialMediaStrategy(generatedBlogData);
       setSocialStrategy(strategy);
-      
       setStatus(AppStatus.COMPLETED);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setStatus(AppStatus.ERROR);
       setProgressMessage("Kon social posts niet genereren.");
@@ -893,20 +1078,21 @@ export default function App() {
 
   const handleModification = async () => {
     if (!generatedBlogData || !modificationPrompt.trim()) return;
-
     try {
       setStatus(AppStatus.MODIFYING_TEXT);
       setProgressMessage("AI past de tekststructuur aan...");
       const updatedBlog = await modifyBlogContent(generatedBlogData, modificationPrompt);
       setGeneratedBlogData(updatedBlog);
       
-      // Re-render HTML with new text but KEEP existing images and video
+      // Update the cache for current language
+      const lang = updatedBlog.language || 'nl';
+      setBlogVersions({ ...blogVersions, [lang]: updatedBlog });
+
       const newHtml = convertToHtmlString(updatedBlog, contentImages, headerImage[0] || null, videoUrl, keywords);
       setEditorContent(newHtml);
-      
       setModificationPrompt('');
       setStatus(AppStatus.COMPLETED);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
       setStatus(AppStatus.ERROR);
       setProgressMessage("Fout bij aanpassen. Probeer het opnieuw.");
@@ -921,10 +1107,9 @@ export default function App() {
     setIsLoadingSuggestions(true);
     setSuggestions([]);
     try {
-      // Pass the current keywords to filter them out
       const sugs = await getKeywordSuggestions(keywords);
       setSuggestions(sugs);
-    } catch (e) { console.error(e); } 
+    } catch (e: any) { console.error(e); } 
     finally { setIsLoadingSuggestions(false); }
   };
 
@@ -938,7 +1123,7 @@ export default function App() {
       try {
         const intents = await getIntentSuggestions(keywords);
         setIntentSuggestions(intents);
-      } catch (e) { console.error(e); }
+      } catch (e: any) { console.error(e); }
       finally { setIsLoadingIntents(false); }
   };
 
@@ -950,17 +1135,14 @@ export default function App() {
 
   const prepareCompleteHtml = () => {
      if (!editorContent) return "";
-     
      const title = generatedBlogData?.title || "Blog Post";
      const description = generatedBlogData?.metaDescription || "";
      const keywordsStr = generatedBlogData?.keywordsUsed?.join(', ') || "";
      const canonicalUrl = generatedBlogData?.canonicalUrl || "https://creativeuseoftechnology.com/blog/";
-
-     // Remove existing style block from content to place it in head
+     const lang = generatedBlogData?.language || 'nl';
      const bodyContent = editorContent.replace(BLOG_CSS, '');
-
      return `<!DOCTYPE html>
-<html lang="nl">
+<html lang="${lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -978,33 +1160,24 @@ export default function App() {
   };
 
   const handleCopyHtml = () => {
-    // For copy to clipboard, we just copy the body fragment + styles because users likely paste into a CMS body field
-    // But we check if style is missing
     let htmlToCopy = editorContent;
     if (!htmlToCopy.includes('<style>')) {
          htmlToCopy = BLOG_CSS + htmlToCopy;
     }
-
     if (!htmlToCopy) return;
-
     navigator.clipboard.writeText(htmlToCopy);
     setCopiedHtml(true);
     setTimeout(() => setCopiedHtml(false), 2000);
   };
 
   const handleDownloadHtml = () => {
-    // For download, we provide the FULL VALID DOC
     const htmlToSave = prepareCompleteHtml();
     if (!htmlToSave) return;
-    
-    // Create a Blob from the HTML String
     const blob = new Blob([htmlToSave], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
-    
-    // Create link and trigger download
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cuot-blog-${keywords.replace(/\s+/g, '-').toLowerCase()}.html`;
+    a.download = `cuot-blog-${(generatedBlogData?.language || 'nl')}-${keywords.replace(/\s+/g, '-').toLowerCase()}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1013,7 +1186,6 @@ export default function App() {
 
   const renderSocialCard = (platform: string, content: SocialPost | undefined, Icon: any, colorClass: string) => {
     if (!content) return null;
-
     return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className={`p-4 border-b border-slate-100 flex items-center justify-between ${colorClass} bg-opacity-10`}>
@@ -1070,9 +1242,22 @@ export default function App() {
                 </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider px-3 py-1 bg-brand-light text-brand-orange rounded-full border border-brand-orange/20">
-            <Bot size={14} />
-            <span>AI Blog Editor</span>
+          <div className="flex items-center gap-4">
+              {/* Reset Button */}
+              {generatedBlogData && (
+                  <button 
+                    onClick={handleClearDraft}
+                    className="text-xs text-slate-400 hover:text-red-500 font-bold flex items-center gap-1 transition-colors"
+                    title="Wis alles en begin opnieuw"
+                  >
+                    <Trash2 size={14} /> Nieuw Project
+                  </button>
+              )}
+              
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider px-3 py-1 bg-brand-light text-brand-orange rounded-full border border-brand-orange/20">
+                <Bot size={14} />
+                <span>AI Blog Editor</span>
+              </div>
           </div>
         </div>
       </header>
@@ -1088,6 +1273,14 @@ export default function App() {
             </h2>
             
             <div className="space-y-4">
+              {/* --- AUTO SAVE INDICATOR --- */}
+              {editorContent && (
+                  <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 p-2 rounded border border-green-100">
+                      <Save size={12} />
+                      <span>Wijzigingen automatisch opgeslagen als concept.</span>
+                  </div>
+              )}
+
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="block text-sm font-bold text-brand-grey">
@@ -1251,6 +1444,41 @@ export default function App() {
                   </div>
                </details>
 
+                {/* TONE OF VOICE (NEW) */}
+               <details className="group border border-slate-200 rounded-lg bg-white overflow-hidden transition-all duration-300">
+                  <summary className="flex items-center justify-between p-3 cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center gap-2 text-sm font-bold text-brand-grey">
+                          <Wand2 size={16} className="text-slate-500" />
+                          <span>Tone of Voice (Klonen)</span>
+                      </div>
+                      <ChevronDown size={16} className="text-slate-400 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="p-4 space-y-3 bg-white border-t border-slate-100">
+                      <p className="text-xs text-slate-500">
+                          Plak hieronder een tekst (bijv. van een vorige blog) waarvan je de schrijfstijl wilt overnemen.
+                      </p>
+                      <textarea
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs h-24 focus:ring-2 focus:ring-brand-orange focus:border-brand-orange outline-none resize-none"
+                        placeholder="Plak hier je voorbeeld tekst..."
+                        value={toneSample}
+                        onChange={(e) => setToneSample(e.target.value)}
+                      />
+                      <button 
+                        onClick={handleAnalyzeTone}
+                        disabled={!toneSample || status !== AppStatus.IDLE}
+                        className="w-full text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded font-bold transition-colors"
+                      >
+                          Analyseer & Gebruik Stijl
+                      </button>
+                      {analyzedTone && (
+                          <div className="bg-brand-light border border-brand-orange/20 p-2 rounded text-[10px] text-brand-grey italic">
+                              <strong>Huidige Stijl Analyse:</strong><br/>
+                              {analyzedTone}
+                          </div>
+                      )}
+                  </div>
+               </details>
+
               {/* Sitemap & Product Selector */}
               <div className="relative border-t border-slate-100 pt-4">
                 <div className="flex justify-between items-center mb-1">
@@ -1388,9 +1616,9 @@ export default function App() {
 
               <button
                 onClick={handleGenerate}
-                disabled={status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL}
+                disabled={status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL || status === AppStatus.TRANSLATING}
                 className={`w-full py-3 px-4 rounded-lg font-display font-bold text-white flex items-center justify-center gap-2 transition-all shadow-md
-                  ${(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL)
+                  ${(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL || status === AppStatus.TRANSLATING)
                     ? 'bg-slate-400 cursor-not-allowed'
                     : 'bg-brand-orange hover:bg-[#d66a4d] hover:shadow-lg active:scale-[0.98]'
                   }`}
@@ -1398,7 +1626,7 @@ export default function App() {
                 {status === AppStatus.IDLE && (
                   <>Genereer HTML <ArrowRight size={18} /></>
                 )}
-                {(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL) && (
+                {(status === AppStatus.ANALYZING_IMAGES || status === AppStatus.GENERATING_TEXT || status === AppStatus.MODIFYING_TEXT || status === AppStatus.GENERATING_SOCIAL || status === AppStatus.TRANSLATING) && (
                    <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"/> {progressMessage}</>
                 )}
                 {status === AppStatus.COMPLETED && (
@@ -1413,7 +1641,7 @@ export default function App() {
         {/* Right Column: Editor & Social */}
         <div className="lg:col-span-8 flex flex-col gap-4">
           
-          {/* Tab Navigation - ALWAYS VISIBLE NOW */}
+          {/* Tab Navigation */}
           <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 mb-2">
               <button 
                  onClick={() => setActiveTab('editor')}
@@ -1441,6 +1669,46 @@ export default function App() {
 
           {/* EDITOR VIEW */}
           <div className={activeTab === 'editor' ? 'block' : 'hidden'}>
+              
+               {/* Language Switcher Bar (Only visible if blog is generated) */}
+               {generatedBlogData && (
+                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-2 mb-4 flex items-center justify-between">
+                     <div className="flex items-center gap-2 text-sm font-bold text-brand-grey px-2">
+                         <Globe size={18} className="text-brand-orange" />
+                         <span>Vertalingen:</span>
+                     </div>
+                     <div className="flex gap-2">
+                         {(['nl', 'en', 'de', 'fr'] as SupportedLanguage[]).map((lang) => {
+                             const isCurrent = (generatedBlogData.language || 'nl') === lang;
+                             const isCached = !!blogVersions[lang];
+                             return (
+                                 <button
+                                     key={lang}
+                                     onClick={() => handleTranslate(lang)}
+                                     disabled={isCurrent || status === AppStatus.TRANSLATING}
+                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 
+                                         ${isCurrent 
+                                            ? 'bg-brand-orange text-white shadow-sm ring-2 ring-brand-orange ring-offset-1' 
+                                            : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'}
+                                         ${status === AppStatus.TRANSLATING ? 'opacity-50 cursor-not-allowed' : ''}
+                                     `}
+                                 >
+                                     {isCurrent && <Check size={12} />}
+                                     <span className="uppercase">{lang}</span>
+                                     {isCached && !isCurrent && <span className="w-1.5 h-1.5 bg-green-500 rounded-full" title="Gereed in cache" />}
+                                 </button>
+                             );
+                         })}
+                     </div>
+                 </div>
+               )}
+
+              {/* MEDIA ASSETS PANEL (New) */}
+              {generatedBlogData && <MediaAssetPanel blog={generatedBlogData} headerImage={headerImage[0]} />}
+
+              {/* RANKMATH PANEL */}
+              {generatedBlogData && <RankMathPanel blog={generatedBlogData} />}
+
               {/* Modification Bar */}
               {editorContent && (
                  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
@@ -1459,7 +1727,7 @@ export default function App() {
                         />
                         <button 
                            onClick={handleModification}
-                           disabled={!modificationPrompt.trim() || status === AppStatus.MODIFYING_TEXT}
+                           disabled={!modificationPrompt.trim() || status === AppStatus.MODIFYING_TEXT || status === AppStatus.TRANSLATING}
                            className="bg-brand-grey text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
                            <Sparkles size={16} /> Update
@@ -1468,40 +1736,60 @@ export default function App() {
                   </div>
               )}
 
-              {/* Copy Bar */}
+              {/* Device Preview & Copy Bar */}
               {editorContent && (
-                  <div className="flex justify-end gap-2 mb-4">
-                       <button 
-                          onClick={handleDownloadHtml}
-                          className="bg-slate-600 text-white hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
-                          title="Download als .html bestand (Aanbevolen voor grote bestanden)"
-                        >
-                          <Download size={18} />
-                          Download HTML
-                       </button>
-                       <button 
-                          onClick={handleCopyHtml}
-                          className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
-                        >
-                          {copiedHtml ? <ClipboardCheck size={18} /> : <Copy size={18} />}
-                          {copiedHtml ? 'Gekopieerd!' : 'Kopieer HTML'}
-                        </button>
+                  <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                       <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 self-start">
+                          <button onClick={() => setPreviewMode('desktop')} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${previewMode === 'desktop' ? 'bg-white shadow text-brand-orange' : 'text-slate-500 hover:text-slate-700'}`} title="Desktop View">
+                             <Monitor size={16} /> Desktop
+                          </button>
+                          <button onClick={() => setPreviewMode('tablet')} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${previewMode === 'tablet' ? 'bg-white shadow text-brand-orange' : 'text-slate-500 hover:text-slate-700'}`} title="Tablet View">
+                             <Tablet size={16} /> Tablet
+                          </button>
+                          <button onClick={() => setPreviewMode('mobile')} className={`p-2 rounded flex items-center gap-2 text-xs font-bold transition-all ${previewMode === 'mobile' ? 'bg-white shadow text-brand-orange' : 'text-slate-500 hover:text-slate-700'}`} title="Mobile View">
+                             <Smartphone size={16} /> Mobiel
+                          </button>
+                       </div>
+
+                       <div className="flex gap-2 self-end">
+                           <button 
+                              onClick={handleDownloadHtml}
+                              className="bg-slate-600 text-white hover:bg-slate-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                              title="Download als .html bestand"
+                            >
+                              <Download size={18} />
+                              Download
+                           </button>
+                           <button 
+                              onClick={handleCopyHtml}
+                              className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"
+                            >
+                              {copiedHtml ? <ClipboardCheck size={18} /> : <Copy size={18} />}
+                              {copiedHtml ? 'Gekopieerd!' : 'Kopieer'}
+                            </button>
+                       </div>
                   </div>
               )}
 
               {/* Editor Area */}
-              <div className="flex gap-4 min-h-[600px] relative">
-                 {status === AppStatus.MODIFYING_TEXT && (
+              <div className="flex gap-4 min-h-[600px] relative justify-center bg-slate-100/50 rounded-xl p-4 border border-slate-200">
+                 {(status === AppStatus.MODIFYING_TEXT || status === AppStatus.TRANSLATING) && (
                     <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/50 backdrop-blur-sm rounded-xl">
                         <div className="bg-white p-4 rounded-lg shadow-xl border border-slate-200 flex flex-col items-center">
                             <div className="animate-spin rounded-full h-8 w-8 border-4 border-brand-orange border-t-transparent mb-2"/>
-                            <p className="text-brand-grey font-bold font-display">Aanpassingen verwerken...</p>
+                            <p className="text-brand-grey font-bold font-display">{progressMessage || "Bezig..."}</p>
                         </div>
                     </div>
                  )}
                  
                  {editorContent ? (
-                    <div className="flex-1">
+                    <div 
+                        className={`transition-all duration-300 ease-in-out shadow-lg ${
+                            previewMode === 'mobile' ? 'w-[390px] border-x-4 border-slate-800 rounded-2xl overflow-hidden bg-black' : 
+                            previewMode === 'tablet' ? 'w-[768px] border-x-4 border-slate-800 rounded-2xl overflow-hidden bg-black' : 
+                            'w-full'
+                        }`}
+                    >
                          <RichTextEditor 
                             initialContent={editorContent} 
                             onChange={setEditorContent} 

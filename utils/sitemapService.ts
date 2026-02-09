@@ -1,3 +1,4 @@
+
 import { ProductEntry } from "../types";
 
 // Helper to handle CORS issues with multiple fallbacks
@@ -6,9 +7,11 @@ const fetchWithProxy = async (targetUrl: string): Promise<string> => {
   const urlWithTimestamp = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
   
   const proxies = [
-    // CorsProxy.io is usually fastest and handles large XML files well
+    // CodeTabs is very robust for text/xml content
+    (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    // CorsProxy.io is usually fast
     (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    // AllOrigins is a good backup
+    // AllOrigins as backup
     (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   ];
 
@@ -19,14 +22,17 @@ const fetchWithProxy = async (targetUrl: string): Promise<string> => {
       if (response.ok) {
         const text = await response.text();
         // Basic validation to ensure we got something meaningful back
-        if (text && text.length > 50) return text; 
+        // Check if it looks like XML or HTML, not just an empty proxy response
+        if (text && text.length > 50 && (text.includes('<') || text.includes('sitemap'))) {
+             return text; 
+        }
       }
     } catch (e) {
       console.warn("Proxy attempt failed, trying next...", e);
       continue;
     }
   }
-  throw new Error(`Kon URL niet ophalen via beschikbare proxies: ${targetUrl}`);
+  throw new Error(`Kon URL niet ophalen via proxies. Mogelijk blokkeert de firewall van creativeuseoftechnology.com deze verzoeken.`);
 };
 
 export const fetchSiteProducts = async (sitemapIndexUrl: string): Promise<ProductEntry[]> => {

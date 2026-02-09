@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy } from "../types";
+import { GeneratedBlog, ImageData, KeywordSuggestion, ProductEntry, ContentFramework, SocialMediaStrategy, SupportedLanguage } from "../types";
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -10,7 +10,7 @@ KNOWLEDGE BASE - SITE STRUCTUUR:
 2. **Categorieën:** /product-categorie/wereldkaarten/, /product-categorie/verlichting/, /product-categorie/relatiegeschenken/
 `;
 
-const BRAND_VOICE = `
+const BRAND_VOICE_DEFAULT = `
 MERK IDENTITEIT (Creative Use of Technology - CUoT):
 - Rol: Senior Content Strateeg.
 - Kleuren: Oranje (#ec7b5d), Grijs (#575756).
@@ -24,9 +24,14 @@ MERK IDENTITEIT (Creative Use of Technology - CUoT):
 const BLOG_SCHEMA = {
   type: Type.OBJECT,
   properties: {
+    language: { type: Type.STRING, enum: ['nl', 'en', 'de', 'fr'] },
     title: { 
       type: Type.STRING,
       description: "H1 titel: Kort, krachtig en bevat het hoofdzoekwoord (max 60 tekens)." 
+    },
+    permalink: {
+      type: Type.STRING,
+      description: "SEO URL slug. Kort, lowercase, alleen letters en koppeltekens. (bijv: houten-wereldkaart-kopen)"
     },
     metaDescription: { 
       type: Type.STRING,
@@ -62,11 +67,11 @@ const BLOG_SCHEMA = {
         properties: {
           question: { 
             type: Type.STRING, 
-            description: "De vraag. KORT en DIRECT (bijv: 'Is acrylaat duurzaam?')." 
+            description: "De vraag. KORT en DIRECT. GEEN enters of witregels toegestaan." 
           },
           answer: { 
             type: Type.STRING, 
-            description: "Het antwoord. Geoptimaliseerd voor VOICE SEARCH: Direct, beknopt (max 2 zinnen) en feitelijk. GEEN enters/newlines." 
+            description: "Het antwoord. Geoptimaliseerd voor VOICE SEARCH: Direct, beknopt (max 2 zinnen) en feitelijk. GEEN enters of witregels." 
           }
         }
       }
@@ -130,6 +135,37 @@ export const analyzeImageContent = async (base64: string, mimeType: string): Pro
   }
 };
 
+// NEW: Function to analyze tone of voice from a sample text
+export const analyzeToneOfVoice = async (sampleText: string): Promise<string> => {
+    if (!sampleText || sampleText.length < 50) return "";
+
+    const prompt = `
+      Analyseer de schrijfstijl en "Tone of Voice" van de volgende tekst.
+      
+      TEKST: "${sampleText.substring(0, 2000)}"
+      
+      Geef een beknopte, puntige instructie terug (max 5 punten) die ik aan een AI kan geven om deze stijl exact te kopiëren.
+      Focus op:
+      1. Zinslengte en ritme.
+      2. Gebruik van jargon vs jip-en-janneke.
+      3. Mate van humor/persoonlijkheid vs zakelijkheid.
+      4. Manier van aanspreken (je/u/wij).
+      
+      OUTPUT FORMAAT: Een string met instructies.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+        });
+        return response.text || "";
+    } catch (e) {
+        console.warn("Tone analysis failed", e);
+        return "";
+    }
+}
+
 export const generateBlogContent = async (
   keywords: string,
   userIntent: string,
@@ -138,6 +174,7 @@ export const generateBlogContent = async (
   headerImageContext: string, // Header image specific context
   productDetails: string[], // Scraped content
   extraInstructions: string,
+  toneOfVoiceSample: string, // NEW: Custom tone input
   framework: ContentFramework,
   aiSettings?: { temperature: number; topP: number }
 ): Promise<GeneratedBlog> => {
@@ -146,13 +183,24 @@ export const generateBlogContent = async (
   const temperature = aiSettings?.temperature ?? 0.3;
   const topP = aiSettings?.topP ?? 0.95;
 
+  // Analyze tone if provided, otherwise use default
+  let toneInstruction = BRAND_VOICE_DEFAULT;
+  if (toneOfVoiceSample) {
+      toneInstruction = `
+      ${BRAND_VOICE_DEFAULT}
+      
+      === SPECIFIEKE STIJL INSTRUCTIES (OVERRIDE) ===
+      De gebruiker heeft een voorbeeldstijl aangeleverd. Pas de volgende analyse toe op de output:
+      ${toneOfVoiceSample}
+      `;
+  }
+
   const productContextList = focusedProducts.map(p => `- LINK TARGET: "${p.name}" -> URL: "${p.url}"`).join('\n');
   
   const detailedProductContext = productDetails.map((detail, index) => 
      `[PRODUCT INFO START: ${focusedProducts[index]?.name}]\n${detail}\n[PRODUCT INFO END]\n`
   ).join('\n');
 
-  // Define logic for framework selection
   let frameworkInstruction = "";
   if (framework === 'auto') {
       frameworkInstruction = `
@@ -163,7 +211,6 @@ export const generateBlogContent = async (
       D. 'Process Behind' (Autoriteit/Techniek): Leg de techniek uit. Benadruk lokaal in Breda.
       `;
   } else {
-      // Force specific framework
       const frameworkMapping: Record<string, string> = {
           'inspiration': "'Inspiration Guide': Structureer als Intro (Lead-in Summary) -> 5-7 unieke ideeën (als lijst/kopjes) -> Waarom personalisatie werkt -> Call to Action.",
           'expert': "'Service Expert': Structureer als Intro (Lead-in Summary) -> De techniek achter de dienst -> Materiaalkeuze (hout/plexiglas) -> Technische FAQ.",
@@ -178,7 +225,7 @@ export const generateBlogContent = async (
     ROL: Je bent de Senior Content Strateeg van Creative Use of Technology (CUT). 
     DOEL: Genereer een blog die informatief, technisch geoptimaliseerd (GEO) en visueel aantrekkelijk is.
 
-    ${BRAND_VOICE}
+    ${toneInstruction}
     
     === GEO (GENERATIVE ENGINE OPTIMIZATION) STRATEGIE (CRUCIAAL) ===
     
@@ -212,13 +259,18 @@ export const generateBlogContent = async (
 
     6. **ENTITY MAPPING & CANONICAL:**
        - Identificeer de 3-5 belangrijkste technische entiteiten in de tekst.
-       - Genereer de **'canonicalUrl'**. Dit is cruciaal voor distributie. Maak een slug van de titel en plak deze achter 'https://creativeuseoftechnology.com/blog/'.
+       - Genereer de **'canonicalUrl'**. 
+       - Genereer de **'permalink'** (slug). Dit moet een korte, geoptimaliseerde versie van de titel zijn (max 4-5 woorden, lowercase, koppeltekens).
 
     === INTENT-FIRST & VALIDATIE ===
-    - **H1:** Het focus-keyword MOET in de titel staan.
-    - **Header 1:** De allereerste sectie moet het zoekwoord in de eerste 100 woorden bevatten (Entity Definition).
+    - **H1:** Het focus-keyword MOET in de titel staan. 
+    - **Header 1:** De allereerste sectie moet het zoekwoord in de eerste 100 woorden bevatten (Entity Definition). 
     - **Actie-Werkwoorden:** Als de intentie 'graveren' of 'maken' is, gebruik dan koppen die dit proces uitleggen (bijv. "Hoe het laserproces werkt").
-    - **FAQ:** Voeg onderaan een 'Q&A Blok' toe met de 3 meest gestelde vragen, geformuleerd voor 'People Also Ask'.
+    
+    === FAQ & SCHEMA (CRITICAAL) ===
+    - **FAQ GENERATIE VERPLICHT:** Je MOET de 'faq' array in de JSON vullen met exact 3 veelgestelde vragen.
+    - Dit is nodig om de FAQPage Schema Markup te genereren.
+    - Vragen moeten relevant zijn voor Voice Search (Wie, Wat, Waar, Hoe).
 
     ${SITEMAP_CONTEXT}
     
@@ -259,6 +311,7 @@ export const generateBlogContent = async (
     ONDERWERP/KEYWORDS: ${keywords}
     KLANTVRAAG (USER INTENT): ${userIntent}
     EXTRA INSTRUCTIES: "${extraInstructions}"
+    TAAL: Nederlands (nl)
     
     HEADER IMAGE CONTEXT: ${headerImageContext}
     CONTENT IMAGES CONTEXT: 
@@ -270,9 +323,10 @@ export const generateBlogContent = async (
     === WRITING GUIDELINES ===
     1. **Content:** Schrijf converterende tekst. Als een sectie een afbeelding heeft, refereer hiernaar.
     2. **Opmaak:** GEEN markdown bolding (**) in de JSON strings.
-    3. **JSON SYNTAX (CRITICAAL):** 
-       - GEEN newlines (\n) in JSON strings.
-       - Houd 'question' en 'answer' velden op 1 regel.
+    3. **JSON SYNTAX (CRITICAAL - STOP LOOP):** 
+       - **VERBODEN:** Gebruik NOOIT newline characters (\n) of carriage returns (\r) binnen JSON waarden (zoals in 'question', 'answer' of 'content').
+       - Schrijf de tekst als één lange string.
+       - Als je een nieuwe regel wilt in de tekst, gebruik dan HTML tags zoals <br> of </p><p> binnen de string, maar GEEN \n.
 
     OUTPUT: JSON ONLY. Volg exact het schema.
   `;
@@ -297,16 +351,25 @@ export const generateBlogContent = async (
     try {
         const parsed = JSON.parse(cleanJson(text)) as GeneratedBlog;
         
+        // Ensure language is set default
+        parsed.language = 'nl';
+        
         // Safety Checks
         if (!parsed.sections) parsed.sections = [];
         if (!parsed.keywordsUsed) parsed.keywordsUsed = [];
         if (!parsed.internalLinksUsed) parsed.internalLinksUsed = [];
         if (!parsed.faq) parsed.faq = [];
         if (!parsed.semanticEntities) parsed.semanticEntities = [];
+        
+        // Generate slug/permalink if missing
+        if (!parsed.permalink) {
+             parsed.permalink = parsed.title.toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/(^-|-$)+/g, '');
+        }
+
         if (!parsed.canonicalUrl) {
-            // Fallback generation if AI misses it
-            const slug = parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
-            parsed.canonicalUrl = `https://creativeuseoftechnology.com/blog/${slug}`;
+            parsed.canonicalUrl = `https://creativeuseoftechnology.com/blog/${parsed.permalink}`;
         }
         
         parsed.sections.forEach(s => {
@@ -318,12 +381,86 @@ export const generateBlogContent = async (
         return parsed;
     } catch (parseError) {
         console.error("JSON Parse Error:", parseError, "Raw Text:", text);
-        throw new Error("Fout bij verwerken van AI antwoord. Probeer het opnieuw (Data was incompleet).");
+        // Better error message for user
+        throw new Error("De AI genereerde ongeldige code (waarschijnlijk te veel tekst of een 'loop'). Probeer de 'AI Settings' -> 'Creativiteit' iets lager te zetten en probeer opnieuw.");
     }
   } catch (error) {
     console.error("Fout bij blog generatie:", error);
     throw error;
   }
+};
+
+export const translateBlogContent = async (
+  currentBlog: GeneratedBlog,
+  targetLanguage: SupportedLanguage
+): Promise<GeneratedBlog> => {
+    
+    // Mapping for prompt clarity
+    const langMap: Record<SupportedLanguage, string> = {
+        'nl': 'Nederlands (Dutch)',
+        'en': 'Engels (English)',
+        'de': 'Duits (German)',
+        'fr': 'Frans (French)'
+    };
+    
+    const targetLangName = langMap[targetLanguage];
+
+    const prompt = `
+      ROL: Professionele Native Vertaler & SEO Specialist (Creative Use of Technology).
+      TAAK: Vertaal de volgende blog JSON data naar: **${targetLangName}**.
+      
+      BRON DATA: ${JSON.stringify(currentBlog)}
+      
+      CRITICAAL - WAT TE VERTALEN:
+      1. Vertaal alle content velden: 'title', 'metaDescription', 'sections.heading', 'sections.content', 'sections.snippet', 'sections.ctaText', 'faq.question', 'faq.answer', 'headerImageAlt', 'imageAltMap', 'geoStrategy'.
+      2. Vertaal 'semanticEntities' (concept en definitie).
+      3. Pas 'keywordsUsed' aan naar relevante equivalenten in de doeltaal.
+      4. Vertaal de 'permalink' (slug) zodat deze goed scoort in de doeltaal (bijv. 'houten-wereldkaart' -> 'wooden-world-map').
+      
+      CRITICAAL - WAT *NIET* TE VERTALEN (BEHOUDEN):
+      1. JSON Structuur en Keys (MOET exact hetzelfde schema blijven).
+      2. 'ctaUrl' en 'canonicalUrl' (Links blijven hetzelfde tenzij je zeker weet dat er een /en/ of /de/ prefix nodig is, maar voor nu behouden we ze).
+      3. Afbeeldingen (base64 data zit niet in deze input, maar de verwijzingen moeten kloppen).
+      4. HTML Tags: Als er <strong> of <br> in de tekst staat, BEHOUD deze exact op de juiste plek.
+      
+      TONE OF VOICE (BELANGRIJK):
+      - Behoud de "Creative Use of Technology" tone of voice: Professioneel, warm, technisch vakmanschap.
+      - Engels: International, accessible but professional.
+      - Duits: Zakelijk maar toegankelijk (Gebruik 'Sie' voor B2B focus, of 'Du' als het erg creatief is - volg de originele NL toon. Als NL 'je' is, mag DE 'Sie' zijn voor professionaliteit of 'Du' voor community. Kies wat past bij een design merk: Waarschijnlijk 'Sie' voor Duitsland is veiliger, of 'Du' voor hippe merken. Creative Use of Technology is B2B & B2C. Kies voor een respectvolle toon).
+      - Frans: Formeel en stijlvol ('Vous').
+      
+      OUTPUT: Alleen de vertaalde JSON. Geen markdown blocks.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: BLOG_SCHEMA, // Use same schema to ensure compatibility
+                temperature: 0.3
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("Geen vertaling ontvangen.");
+
+        const parsed = JSON.parse(cleanJson(text)) as GeneratedBlog;
+        
+        // Force correct language tag
+        parsed.language = targetLanguage;
+        
+        // Safety checks/defaults similar to generate
+        if (!parsed.sections) parsed.sections = [];
+        if (!parsed.imageAltMap) parsed.imageAltMap = {};
+        
+        return parsed;
+
+    } catch (error) {
+        console.error("Translation failed:", error);
+        throw error;
+    }
 };
 
 export const modifyBlogContent = async (
@@ -371,6 +508,10 @@ export const modifyBlogContent = async (
     if (!parsed.faq) parsed.faq = [];
     if (!parsed.semanticEntities) parsed.semanticEntities = [];
     if (!parsed.canonicalUrl) parsed.canonicalUrl = currentBlog.canonicalUrl;
+    if (!parsed.permalink) parsed.permalink = currentBlog.permalink;
+    
+    // Maintain language
+    parsed.language = currentBlog.language || 'nl';
 
     return parsed;
   } catch (error) {
@@ -469,6 +610,7 @@ export const generateSocialMediaStrategy = async (blog: GeneratedBlog): Promise<
     BLOG TITEL: ${blog.title}
     SAMENVATTING: ${blog.metaDescription}
     KEYWORDS: ${blog.keywordsUsed.join(', ')}
+    TAAL: ${blog.language || 'nl'}
     
     DOELGROEPEN & PLATFORMS:
     1. LinkedIn: Zakelijk, focus op relatiegeschenken/ambacht/duurzaamheid. Professioneel maar persoonlijk.

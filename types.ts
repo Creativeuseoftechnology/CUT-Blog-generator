@@ -10,6 +10,7 @@ export interface ImageData {
 
 export type SectionLayout = 'hero' | 'full_width' | 'two_column_image_left' | 'two_column_image_right' | 'cta_block' | 'feature_highlight' | 'quote_block';
 export type ContentFramework = 'auto' | 'inspiration' | 'expert' | 'business' | 'comparison' | 'process';
+export type SupportedLanguage = 'nl' | 'en' | 'de' | 'fr';
 
 export interface BlogSection {
   layout: SectionLayout;
@@ -34,7 +35,9 @@ export interface ProductEntry {
 }
 
 export interface GeneratedBlog {
+  language: SupportedLanguage; // New: Track language version
   title: string;
+  permalink: string; // New: WP Slug
   metaDescription: string;
   sections: BlogSection[];
   keywordsUsed: string[];
@@ -82,6 +85,7 @@ export enum AppStatus {
   ANALYZING_IMAGES = 'ANALYZING_IMAGES',
   GENERATING_TEXT = 'GENERATING_TEXT',
   MODIFYING_TEXT = 'MODIFYING_TEXT',
+  TRANSLATING = 'TRANSLATING', // New status
   GENERATING_SOCIAL = 'GENERATING_SOCIAL',
   COMPLETED = 'COMPLETED',
   ERROR = 'ERROR'
